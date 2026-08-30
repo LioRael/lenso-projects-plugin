@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+  "required":["idempotency_key","organization_id","issue_id","expected_revision","title","description","priority","workflow_state_id","cycle_id","milestone_id","parent_issue_id","label_ids"],
+  "properties":{
+    "idempotency_key":{"type":"string"},"organization_id":{"type":"string"},"issue_id":{"type":"string"},"expected_revision":{"type":"string","pattern":"^[1-9][0-9]*$"},
+    "title":{"type":"string"},"description":{"type":["string","null"]},"priority":{"$ref":"#/$defs/Priority"},
+    "workflow_state_id":{"type":"string"},"cycle_id":{"type":["string","null"]},"milestone_id":{"type":["string","null"]},
+    "parent_issue_id":{"type":["string","null"]},"label_ids":{"type":"array","items":{"type":"string"}}
+  },
+  "$defs":{"Priority":{"type":"string","enum":["none","urgent","high","medium","low"]}}
+}

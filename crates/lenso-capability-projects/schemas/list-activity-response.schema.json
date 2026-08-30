@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["items","next_cursor"],
+  "properties":{"items":{"type":"array","items":{"$ref":"#/$defs/Activity"}},"next_cursor":{"description":"Durable high-water activity_id; equals the request checkpoint when no new item exists.","type":["string","null"]}},
+  "$defs":{"Activity":{"type":"object","additionalProperties":false,"required":["activity_id","organization_id","project_id","issue_id","actor_subject","operation","entity_kind","entity_id","revision","occurred_at"],"properties":{"activity_id":{"description":"Monotonic PostgreSQL-owned change cursor.","type":"string"},"organization_id":{"type":"string"},"project_id":{"type":["string","null"]},"issue_id":{"type":["string","null"]},"actor_subject":{"type":"string"},"operation":{"type":"string"},"entity_kind":{"type":"string"},"entity_id":{"type":"string"},"revision":{"type":["string","null"]},"occurred_at":{"type":"string","format":"date-time"}}}}
+}

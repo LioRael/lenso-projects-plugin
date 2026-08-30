@@ -1,0 +1,26 @@
+{
+  "id":"lenso.projects-admin@1","version":"1.0.0","portable":true,"cross_lane_transfer":true,
+  "operations":[
+    {"name":"put_team","interaction":"request","request_schema":"schemas/put-team-request.schema.json","response_schema":"schemas/team-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"list_teams","interaction":"request","request_schema":"schemas/list-organization-request.schema.json","response_schema":"schemas/list-teams-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"set_team_member","interaction":"request","request_schema":"schemas/set-team-member-request.schema.json","response_schema":"schemas/team-member-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"put_workflow_state","interaction":"request","request_schema":"schemas/put-workflow-state-request.schema.json","response_schema":"schemas/workflow-state-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"get_workflow_state","interaction":"request","request_schema":"schemas/get-workflow-state-request.schema.json","response_schema":"schemas/workflow-state-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"reorder_workflow_states","interaction":"request","request_schema":"schemas/reorder-workflow-states-request.schema.json","response_schema":"schemas/reorder-workflow-states-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"archive_workflow_state","interaction":"request","request_schema":"schemas/archive-workflow-state-request.schema.json","response_schema":"schemas/workflow-state-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"delete_workflow_state","interaction":"request","request_schema":"schemas/delete-workflow-state-request.schema.json","response_schema":"schemas/delete-workflow-state-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"list_workflow_states","interaction":"request","request_schema":"schemas/list-team-request.schema.json","response_schema":"schemas/list-workflow-states-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"put_project_status","interaction":"request","request_schema":"schemas/put-project-status-request.schema.json","response_schema":"schemas/project-status-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"get_project_status","interaction":"request","request_schema":"schemas/get-project-status-request.schema.json","response_schema":"schemas/project-status-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"reorder_project_statuses","interaction":"request","request_schema":"schemas/reorder-project-statuses-request.schema.json","response_schema":"schemas/reorder-project-statuses-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"archive_project_status","interaction":"request","request_schema":"schemas/archive-project-status-request.schema.json","response_schema":"schemas/project-status-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"delete_project_status","interaction":"request","request_schema":"schemas/delete-project-status-request.schema.json","response_schema":"schemas/delete-project-status-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"list_project_statuses","interaction":"request","request_schema":"schemas/list-organization-request.schema.json","response_schema":"schemas/list-project-statuses-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"put_label","interaction":"request","request_schema":"schemas/put-label-request.schema.json","response_schema":"schemas/label-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"list_labels","interaction":"request","request_schema":"schemas/list-labels-request.schema.json","response_schema":"schemas/list-labels-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"put_cycle","interaction":"request","request_schema":"schemas/put-cycle-request.schema.json","response_schema":"schemas/cycle-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"list_cycles","interaction":"request","request_schema":"schemas/list-team-request.schema.json","response_schema":"schemas/list-cycles-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"put_milestone","interaction":"request","request_schema":"schemas/put-milestone-request.schema.json","response_schema":"schemas/milestone-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"},
+    {"name":"list_milestones","interaction":"request","request_schema":"schemas/list-project-request.schema.json","response_schema":"schemas/list-milestones-response.schema.json","domain_error_schema":"schemas/admin-error.schema.json"}
+  ]
+}

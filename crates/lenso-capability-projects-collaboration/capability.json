@@ -1,0 +1,13 @@
+{
+  "id":"lenso.projects-collaboration@1","version":"1.0.0","portable":true,"cross_lane_transfer":true,
+  "operations":[
+    {"name":"add_comment","interaction":"request","request_schema":"schemas/add-comment-request.schema.json","response_schema":"schemas/comment-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"},
+    {"name":"update_comment","interaction":"request","request_schema":"schemas/update-comment-request.schema.json","response_schema":"schemas/comment-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"},
+    {"name":"delete_comment","interaction":"request","request_schema":"schemas/delete-comment-request.schema.json","response_schema":"schemas/comment-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"},
+    {"name":"list_comments","interaction":"request","request_schema":"schemas/list-comments-request.schema.json","response_schema":"schemas/list-comments-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"},
+    {"name":"create_project_update","interaction":"request","request_schema":"schemas/create-project-update-request.schema.json","response_schema":"schemas/project-update-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"},
+    {"name":"list_project_updates","interaction":"request","request_schema":"schemas/list-project-updates-request.schema.json","response_schema":"schemas/list-project-updates-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"},
+    {"name":"add_issue_relation","interaction":"request","request_schema":"schemas/add-issue-relation-request.schema.json","response_schema":"schemas/issue-relation-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"},
+    {"name":"remove_issue_relation","interaction":"request","request_schema":"schemas/remove-issue-relation-request.schema.json","response_schema":"schemas/issue-relation-response.schema.json","domain_error_schema":"schemas/collaboration-error.schema.json"}
+  ]
+}

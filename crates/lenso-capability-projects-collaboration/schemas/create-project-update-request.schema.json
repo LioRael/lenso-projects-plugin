@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["idempotency_key","organization_id","project_id","update_id","body","health"],
+  "properties":{"idempotency_key":{"type":"string"},"organization_id":{"type":"string"},"project_id":{"type":"string"},"update_id":{"type":"string"},"body":{"type":"string"},"health":{"$ref":"#/$defs/Health"}},
+  "$defs":{"Health":{"type":"string","enum":["on_track","at_risk","off_track"]}}
+}

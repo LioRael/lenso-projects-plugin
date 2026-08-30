@@ -1,0 +1,21 @@
+{
+  "id": "lenso.projects@1",
+  "version": "1.0.0",
+  "portable": true,
+  "cross_lane_transfer": true,
+  "operations": [
+    {"name":"create_project","interaction":"request","request_schema":"schemas/create-project-request.schema.json","response_schema":"schemas/project-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"get_project","interaction":"request","request_schema":"schemas/get-project-request.schema.json","response_schema":"schemas/project-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"list_projects","interaction":"request","request_schema":"schemas/list-projects-request.schema.json","response_schema":"schemas/list-projects-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"update_project","interaction":"request","request_schema":"schemas/update-project-request.schema.json","response_schema":"schemas/project-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"archive_project","interaction":"request","request_schema":"schemas/archive-project-request.schema.json","response_schema":"schemas/project-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"create_issue","interaction":"request","request_schema":"schemas/create-issue-request.schema.json","response_schema":"schemas/issue-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"get_issue","interaction":"request","request_schema":"schemas/get-issue-request.schema.json","response_schema":"schemas/issue-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"list_issues","interaction":"request","request_schema":"schemas/list-issues-request.schema.json","response_schema":"schemas/list-issues-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"update_issue","interaction":"request","request_schema":"schemas/update-issue-request.schema.json","response_schema":"schemas/issue-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"move_issue","interaction":"request","request_schema":"schemas/move-issue-request.schema.json","response_schema":"schemas/issue-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"archive_issue","interaction":"request","request_schema":"schemas/archive-issue-request.schema.json","response_schema":"schemas/issue-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"put_external_link","interaction":"request","request_schema":"schemas/put-external-link-request.schema.json","response_schema":"schemas/external-link-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
+    {"name":"list_activity","interaction":"request","request_schema":"schemas/list-activity-request.schema.json","response_schema":"schemas/list-activity-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"}
+  ]
+}

@@ -1,0 +1,99 @@
+name: Release-plz
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      live:
+        description: Publish unpublished crate versions and create their releases
+        required: true
+        default: false
+        type: boolean
+      confirm:
+        description: Type publish when live is enabled
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: projects-crates-release
+  cancel-in-progress: false
+
+jobs:
+  reject-unconfirmed-live-release:
+    name: Reject unconfirmed live release
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live && (inputs.confirm != 'publish' || github.ref != 'refs/heads/main') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Explain the rejected release
+        run: |
+          echo "Live publication requires confirm=publish and ref=main." >&2
+          exit 1
+
+  dry-run:
+    name: Release dry-run
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.live && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - &checkout
+        name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - &install-rust
+        name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable
+        with:
+          toolchain: 1.94.0
+      - name: Validate the release without publishing
+        uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
+        with:
+          command: release
+          dry_run: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    name: Publish crates
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live && inputs.confirm == 'publish' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+      pull-requests: read
+      id-token: write
+    steps:
+      - *checkout
+      - *install-rust
+      - name: Publish unpublished crates through Trusted Publishing
+        uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-plz-pr:
+    name: Release-plz PR
+    if: ${{ github.event_name == 'push' && github.repository_owner == 'LioRael' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - *checkout
+      - *install-rust
+      - name: Create release PR
+        uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
