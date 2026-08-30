@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["idempotency_key","organization_id","comment_id","expected_revision"],"properties":{"idempotency_key":{"type":"string"},"organization_id":{"type":"string"},"comment_id":{"type":"string"},"expected_revision":{"type":"string","pattern":"^[1-9][0-9]*$"}}}

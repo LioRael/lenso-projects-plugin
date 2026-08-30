@@ -1,0 +1,12 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+  "required":["project_id","organization_id","name","summary","lead_team_id","team_ids","status_id","milestone_id","start_date","target_date","completed_at","canceled_at","archived","revision","created_at","updated_at"],
+  "properties":{
+    "project_id":{"type":"string"},"organization_id":{"type":"string"},"name":{"type":"string"},"summary":{"type":["string","null"]},
+    "lead_team_id":{"type":"string"},"team_ids":{"type":"array","items":{"type":"string"}},"status_id":{"type":"string"},
+    "milestone_id":{"type":["string","null"]},"start_date":{"type":["string","null"]},"target_date":{"type":["string","null"]},
+    "completed_at":{"type":["string","null"],"format":"date-time"},"canceled_at":{"type":["string","null"],"format":"date-time"},
+    "archived":{"type":"boolean"},"revision":{"type":"string","pattern":"^[1-9][0-9]*$"},
+    "created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}
+  }
+}

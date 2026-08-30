@@ -1,0 +1,4 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["items","next_cursor"],"properties":{"items":{"type":"array","items":{"$ref":"#/$defs/Update"}},"next_cursor":{"type":["string","null"]}},
+  "$defs":{"Health":{"type":"string","enum":["on_track","at_risk","off_track"]},"Update":{"type":"object","additionalProperties":false,"required":["update_id","organization_id","project_id","author_subject","body","health","created_at"],"properties":{"update_id":{"type":"string"},"organization_id":{"type":"string"},"project_id":{"type":"string"},"author_subject":{"type":"string"},"body":{"type":"string"},"health":{"$ref":"#/$defs/Health"},"created_at":{"type":"string","format":"date-time"}}}}
+}

@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "oneOf":[
+    {"const":"unauthenticated"},{"const":"forbidden"},{"const":"invalid_request"},
+    {"const":"idempotency_conflict"},{"const":"not_found"},{"const":"revision_conflict"},
+    {"const":"team_not_found"},{"const":"workflow_state_not_found"},
+    {"const":"project_status_not_found"},{"const":"cycle_not_found"},
+    {"const":"milestone_not_found"},{"const":"parent_not_found"},
+    {"const":"label_not_found"},{"const":"private_team"},{"const":"identifier_conflict"}
+  ]
+}

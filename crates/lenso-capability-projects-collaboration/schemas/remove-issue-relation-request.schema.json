@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["idempotency_key","organization_id","relation_id"],"properties":{"idempotency_key":{"type":"string"},"organization_id":{"type":"string"},"relation_id":{"type":"string"}}}

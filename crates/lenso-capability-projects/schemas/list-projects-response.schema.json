@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["items","next_cursor"],
+  "properties":{"items":{"type":"array","items":{"$ref":"#/$defs/Project"}},"next_cursor":{"type":["string","null"]}},
+  "$defs":{"Project":{"type":"object","additionalProperties":false,"required":["project_id","organization_id","name","summary","lead_team_id","team_ids","status_id","milestone_id","start_date","target_date","archived","revision","created_at","updated_at"],"properties":{"project_id":{"type":"string"},"organization_id":{"type":"string"},"name":{"type":"string"},"summary":{"type":["string","null"]},"lead_team_id":{"type":"string"},"team_ids":{"type":"array","items":{"type":"string"}},"status_id":{"type":["string","null"]},"milestone_id":{"type":["string","null"]},"start_date":{"type":["string","null"]},"target_date":{"type":["string","null"]},"archived":{"type":"boolean"},"revision":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}}}
+}

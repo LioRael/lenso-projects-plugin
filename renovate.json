@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Automerge in-range internal patch lockfile refreshes",
+      "matchPackageNames": ["/^lenso(?:-|$)/"],
+      "matchUpdateTypes": ["patch"],
+      "rangeStrategy": "update-lockfile",
+      "groupName": "lenso internal patch dependencies",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Require release intent for internal manifest changes",
+      "matchPackageNames": ["/^lenso(?:-|$)/"],
+      "matchUpdateTypes": ["minor", "major"],
+      "groupName": "lenso internal manifest dependencies",
+      "automerge": false,
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

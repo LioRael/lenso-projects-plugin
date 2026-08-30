@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+  "required":["organization_id","project_id","team_id","workflow_state_id","include_archived","after","limit"],
+  "properties":{"organization_id":{"type":"string"},"project_id":{"type":["string","null"]},"team_id":{"type":["string","null"]},"workflow_state_id":{"type":["string","null"]},"include_archived":{"type":"boolean"},"after":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"maximum":100}}
+}

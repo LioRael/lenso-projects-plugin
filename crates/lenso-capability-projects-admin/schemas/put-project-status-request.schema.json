@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["idempotency_key","organization_id","status_id","name","category","color","position","expected_revision"],
+  "properties":{"idempotency_key":{"type":"string"},"organization_id":{"type":"string"},"status_id":{"type":"string"},"name":{"type":"string"},"category":{"$ref":"#/$defs/ProjectStatusCategory"},"color":{"type":"string"},"position":{"type":"integer"},"expected_revision":{"type":["string","null"],"pattern":"^[1-9][0-9]*$"}},
+  "$defs":{"ProjectStatusCategory":{"type":"string","enum":["backlog","planned","started","paused","completed","canceled"]}}
+}

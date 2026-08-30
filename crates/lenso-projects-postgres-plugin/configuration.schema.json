@@ -1,0 +1,10 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+  "required":["schema","database_url_secret","auth_issuer","auth_assertion_public_key","project_callers","admin_callers","governance_callers"],
+  "properties":{
+    "schema":{"type":"string"},"database_url_secret":{"type":"string"},"auth_issuer":{"type":"string"},"auth_assertion_public_key":{"type":"string"},
+    "project_callers":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string"}},
+    "admin_callers":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string"}},
+    "governance_callers":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string"}}
+  }
+}

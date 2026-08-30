@@ -1,0 +1,8 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["items","next_cursor"],
+  "properties":{"items":{"type":"array","items":{"$ref":"#/$defs/Issue"}},"next_cursor":{"type":["string","null"]}},
+  "$defs":{
+    "Priority":{"type":"string","enum":["none","urgent","high","medium","low"]},
+    "Issue":{"type":"object","additionalProperties":false,"required":["issue_id","organization_id","identifier","previous_identifiers","project_id","team_id","title","description","priority","workflow_state_id","cycle_id","milestone_id","parent_issue_id","label_ids","archived","revision","created_at","updated_at"],"properties":{"issue_id":{"type":"string"},"organization_id":{"type":"string"},"identifier":{"type":"string"},"previous_identifiers":{"type":"array","items":{"type":"string"}},"project_id":{"type":"string"},"team_id":{"type":"string"},"title":{"type":"string"},"description":{"type":["string","null"]},"priority":{"$ref":"#/$defs/Priority"},"workflow_state_id":{"type":"string"},"cycle_id":{"type":["string","null"]},"milestone_id":{"type":["string","null"]},"parent_issue_id":{"type":["string","null"]},"label_ids":{"type":"array","items":{"type":"string"}},"archived":{"type":"boolean"},"revision":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}}
+  }
+}

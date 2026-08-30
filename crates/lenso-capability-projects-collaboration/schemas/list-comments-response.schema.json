@@ -1,0 +1,4 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["items","next_cursor"],"properties":{"items":{"type":"array","items":{"$ref":"#/$defs/Comment"}},"next_cursor":{"type":["string","null"]}},
+  "$defs":{"Comment":{"type":"object","additionalProperties":false,"required":["comment_id","organization_id","issue_id","author_subject","body","deleted","revision","created_at","updated_at"],"properties":{"comment_id":{"type":"string"},"organization_id":{"type":"string"},"issue_id":{"type":"string"},"author_subject":{"type":"string"},"body":{"type":"string"},"deleted":{"type":"boolean"},"revision":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"}}}}
+}

@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["relation_id","organization_id","issue_id","related_issue_id","kind","active"],
+  "properties":{"relation_id":{"type":"string"},"organization_id":{"type":"string"},"issue_id":{"type":"string"},"related_issue_id":{"type":"string"},"kind":{"$ref":"#/$defs/Kind"},"active":{"type":"boolean"}},
+  "$defs":{"Kind":{"type":"string","enum":["blocks","blocked_by","duplicate","related"]}}
+}
