@@ -63,7 +63,6 @@ jobs:
     name: Publish crates
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.live && inputs.confirm == 'publish' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
-    environment: release
     permissions:
       contents: write
       pull-requests: read
