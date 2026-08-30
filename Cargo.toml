@@ -16,10 +16,10 @@ rust-version = "1.94"
 [workspace.dependencies]
 futures = "0.3"
 lenso = { version = "0.5.0", git = "https://github.com/LioRael/lenso-runtime-rust", rev = "b763a63adc20f1ccc9955e784c0d04c21489126b" }
-lenso-auth-sdk = { version = "0.2.1", git = "https://github.com/LioRael/lenso-auth-plugin", rev = "ab242d112a240f41035da471d979fa97bc8d1243" }
-lenso-capability-access-control = { version = "0.1.0", git = "https://github.com/LioRael/lenso-access-control-plugin", rev = "0c36e0f10648e8f706212c5b289678e1a204c1ee" }
+lenso-auth-sdk = { version = "0.2.1", git = "https://github.com/LioRael/lenso-auth-plugin", rev = "b4a2f53df882ae51021aa3d5922d8ee41bf97c72" }
+lenso-capability-access-control = { version = "0.1.0", git = "https://github.com/LioRael/lenso-access-control-plugin", rev = "de1e1f1ec61232b13fc90a05f1cb4e3fc96ba420" }
 lenso-capability-data-export-source = { version = "0.1.0", git = "https://github.com/LioRael/lenso-data-export-retention-plugin", rev = "12324a8c24d77ac077ea0c88fe17ce79a6451503" }
-lenso-capability-organization-membership = { version = "0.1.0", git = "https://github.com/LioRael/lenso-organization-plugin", rev = "e8f869d7a696e5f55b3b9608c3359af969ae2499" }
+lenso-capability-organization-membership = { version = "0.1.0", git = "https://github.com/LioRael/lenso-organization-plugin", rev = "9572afd465ba2f952b646ec16935c0274f66c82a" }
 lenso-capability-retention-participant = { version = "0.1.0", git = "https://github.com/LioRael/lenso-data-export-retention-plugin", rev = "12324a8c24d77ac077ea0c88fe17ce79a6451503" }
 lenso-capability-secrets = { version = "0.1.1", git = "https://github.com/LioRael/lenso-secrets-plugin", rev = "c31aa142ff59b4536e2bf3e9785ccbb5bb5c0e6a" }
 lenso-contract-codegen = { version = "0.6.3", git = "https://github.com/LioRael/lenso-protocols", rev = "9769bc5dc828fd9111da6d28a4ecd5f1bb198ab4" }
