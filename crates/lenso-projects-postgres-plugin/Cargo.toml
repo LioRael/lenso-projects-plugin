@@ -1,6 +1,6 @@
 [package]
 name = "lenso-projects-postgres-plugin"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 publish = true
@@ -17,9 +17,9 @@ lenso-auth-sdk.workspace = true
 lenso-capability-access-control.workspace = true
 lenso-capability-data-export-source.workspace = true
 lenso-capability-organization-membership.workspace = true
-lenso-capability-projects = { path = "../lenso-capability-projects", version = "0.1.0" }
-lenso-capability-projects-admin = { path = "../lenso-capability-projects-admin", version = "0.1.0" }
-lenso-capability-projects-collaboration = { path = "../lenso-capability-projects-collaboration", version = "0.1.0" }
+lenso-capability-projects = { path = "../lenso-capability-projects", version = "0.1.1" }
+lenso-capability-projects-admin = { path = "../lenso-capability-projects-admin", version = "0.1.1" }
+lenso-capability-projects-collaboration = { path = "../lenso-capability-projects-collaboration", version = "0.1.1" }
 lenso-capability-retention-participant.workspace = true
 lenso-capability-secrets.workspace = true
 lenso-kernel.workspace = true
