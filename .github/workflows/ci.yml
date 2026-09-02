@@ -33,6 +33,9 @@ jobs:
       - run: cargo check --locked --workspace --all-targets
       - run: cargo test --locked --workspace
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Install exact contract projection checker
+        run: cargo install --locked --version '=0.6.5' lenso-contract-codegen
+      - run: lenso-contract-codegen workspace check --manifest-path Cargo.toml
       - run: ./scripts/check-repository-boundary.sh
       - name: PostgreSQL concurrency and restart acceptance
         env:

@@ -6,7 +6,11 @@ license.workspace = true
 publish = true
 repository.workspace = true
 description = "Generated Projects administration Capability contract for Lenso."
-build = "build.rs"
+
+[package.metadata.lenso.contract]
+descriptor = "capability.json"
+projection = "rust"
+output = "src/generated.rs"
 
 [dependencies]
 futures.workspace = true
@@ -15,9 +19,6 @@ lenso-kernel.workspace = true
 lenso-plugin-authoring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-
-[build-dependencies]
-lenso-contract-codegen.workspace = true
 
 [lints]
 workspace = true
