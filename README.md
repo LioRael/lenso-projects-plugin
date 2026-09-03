@@ -2,8 +2,8 @@
 
 PostgreSQL-owned, Linear-like project planning for Lenso.
 
-The repository publishes three portable contracts and one linked native
-Plugin. The backend covers Team-scoped workflow, multi-Team Projects, stable
+The repository publishes three portable contracts and two linked native
+Plugins. The backend covers Team-scoped workflow, multi-Team Projects, stable
 Issue identifiers with historical lookup, Cycles, Milestones, Labels,
 relations, comments, project updates, external links, revision-safe mutation,
 keyset pagination, and a transactional activity stream.
@@ -31,6 +31,12 @@ uncommitted record. Cursors are scoped to the same actor visibility. No GitHub
 client, credential, webhook, or repository fact is owned here.
 
 See [the Plugin card](docs/plugin-card.md) for boundaries and invariants.
+
+`lenso.projects.agent-tools` is a stateless, removable adapter for App Agents.
+It provides nine bounded Tools over explicitly bound `lenso.projects@1` and
+`lenso.projects-collaboration@1` providers. It carries the invocation context
+through unchanged, so the Projects provider still owns authentication,
+authorization, visibility, idempotency, and revision checks.
 
 ## Verification
 

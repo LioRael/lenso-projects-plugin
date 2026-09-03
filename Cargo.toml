@@ -4,6 +4,7 @@ members = [
     "crates/lenso-capability-projects",
     "crates/lenso-capability-projects-collaboration",
     "crates/lenso-capability-projects-admin",
+    "crates/lenso-projects-agent-tools-plugin",
     "crates/lenso-projects-postgres-plugin",
 ]
 
@@ -16,6 +17,7 @@ rust-version = "1.94"
 [workspace.dependencies]
 futures = "0.3"
 lenso = { version = "0.5.0" }
+lenso-capability-agent-tool-provider = { version = "0.1.0" }
 lenso-auth-sdk = { version = "0.2.1" }
 lenso-capability-access-control = { version = "0.1.0" }
 lenso-capability-data-export-source = { version = "0.1.0" }

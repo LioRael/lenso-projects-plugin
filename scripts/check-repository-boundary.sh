@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_crates=$'lenso-capability-projects\nlenso-capability-projects-admin\nlenso-capability-projects-collaboration\nlenso-projects-postgres-plugin'
+expected_crates=$'lenso-capability-projects\nlenso-capability-projects-admin\nlenso-capability-projects-collaboration\nlenso-projects-agent-tools-plugin\nlenso-projects-postgres-plugin'
 actual_crates="$({
   find crates -mindepth 1 -maxdepth 1 -type d -exec basename {} \;
 } | LC_ALL=C sort)"

@@ -33,6 +33,12 @@ Requires exactly one provider of:
 - `lenso.access-control@1`
 - `lenso.secrets@1`
 
+The separate `lenso.projects.agent-tools` adapter provides
+`lenso.agent.tool-provider@2` and requires exactly one provider of both
+`lenso.projects@1` and `lenso.projects-collaboration@1`. It owns only Agent
+catalog and argument/result adaptation. Removing it removes the Agent surface
+without removing Projects facts or changing the business Capabilities.
+
 ## Authorization
 
 Every product operation first admits an immutable caller Instance, verifies an
