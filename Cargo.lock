@@ -791,6 +791,8 @@ dependencies = [
 [[package]]
 name = "lenso-capability-access-control"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f0b295e5ff855ee3d09b34c748cc8c7f391bba689d389cc991ed9a08dc92127"
 dependencies = [
  "futures",
  "lenso-contract-runtime",
@@ -839,6 +841,8 @@ dependencies = [
 [[package]]
 name = "lenso-capability-data-export-source"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7ff8b066416f211016d3dec98479d7baf0b8c9e62c8982b662cae3b40c09af"
 dependencies = [
  "futures",
  "lenso-contract-authoring",
@@ -884,6 +888,8 @@ dependencies = [
 [[package]]
 name = "lenso-capability-organization-membership"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b20febeef5b6471b18e495d77839798ece1f683221516b585d662f059b448d87"
 dependencies = [
  "futures",
  "lenso-contract-runtime",
@@ -932,6 +938,8 @@ dependencies = [
 [[package]]
 name = "lenso-capability-retention-participant"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3826bf5529e6a604691b7ea451898db626fb76022f74d7d8d4f79f807b6598a4"
 dependencies = [
  "futures",
  "lenso-contract-authoring",
