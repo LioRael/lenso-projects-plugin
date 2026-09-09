@@ -3,13 +3,16 @@ use std::{fmt, rc::Rc};
 use futures::future::LocalBoxFuture;
 use lenso_kernel::{InvocationContext, NativeRequestEndpoint, NativeRequestFuture, NativeRequestHandle, PluginDependencies, RequestCapability, RuntimeFailure};
 
-use lenso_plugin_authoring::{BoundCapabilityClient, CapabilityClient, CapabilityClientMany};
+use lenso_plugin_authoring::{BoundCapabilityClient, CapabilityClient, CapabilityClientMany, CapabilityReference};
 pub const CAPABILITY_ID: &str = "lenso.projects-collaboration@1";
 pub const DESCRIPTOR_VERSION: &str = "1.0.0";
+pub const DESCRIPTOR_DIGEST: &str = "sha256:9239a52d3aa3ba540b127680504328b2ab564f28e6ed4f2109066e2dd339c8b6";
 pub const PORTABLE: bool = true;
 pub const CROSS_LANE_TRANSFER: bool = true;
 pub const PROJECTS_COLLABORATION_CAPABILITY_ID: &str = CAPABILITY_ID;
 pub const PROJECTS_COLLABORATION_DESCRIPTOR_VERSION: &str = DESCRIPTOR_VERSION;
+pub const PROJECTS_COLLABORATION_DESCRIPTOR_DIGEST: &str = DESCRIPTOR_DIGEST;
+pub const PROJECTS_COLLABORATION_CONTRACT: CapabilityReference<ProjectsCollaborationClient> = CapabilityReference::new(CAPABILITY_ID, DESCRIPTOR_VERSION, DESCRIPTOR_DIGEST);
 
 #[doc(hidden)]
 #[macro_export]
@@ -17,11 +20,23 @@ macro_rules! __lenso_provided_projects_collaboration { () => { "{\"capability_id
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_required_projects_collaboration_client { () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}" }; }
+macro_rules! __lenso_required_projects_collaboration_client {
+    () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}" };
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}") };
+}
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_required_many_projects_collaboration_client { () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}" }; }
+macro_rules! __lenso_required_optional_projects_collaboration_client {
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"optional\"}") };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __lenso_required_many_projects_collaboration_client {
+    () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}" };
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}") };
+}
 
 pub const ADD_COMMENT_OPERATION: &str = "add_comment";
 pub const ADD_ISSUE_RELATION_OPERATION: &str = "add_issue_relation";
@@ -1627,6 +1642,146 @@ macro_rules! __lenso_native_lower_projects_collaboration {
     };
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __lenso_native_lower_object_projects_collaboration {
+    ($object:ty, $plugin:ty, $support:path) => {
+        use $support as __LensoNativeSupportProjectsCollaboration;
+        impl $crate::ProjectsCollaborationProvider for $object {
+        fn add_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::AddCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationAddComment> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::add_comment(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationAddCommentResult::__lenso_into_result(result)
+            })
+        }
+        fn add_issue_relation(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::AddIssueRelationRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationAddIssueRelation> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::add_issue_relation(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationAddIssueRelationResult::__lenso_into_result(result)
+            })
+        }
+        fn create_project_update(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::CreateProjectUpdateRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationCreateProjectUpdate> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::create_project_update(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationCreateProjectUpdateResult::__lenso_into_result(result)
+            })
+        }
+        fn delete_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::DeleteCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationDeleteComment> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::delete_comment(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationDeleteCommentResult::__lenso_into_result(result)
+            })
+        }
+        fn list_comments(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::ListCommentsRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationListComments> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_comments(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationListCommentsResult::__lenso_into_result(result)
+            })
+        }
+        fn list_project_updates(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::ListProjectUpdatesRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationListProjectUpdates> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_project_updates(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationListProjectUpdatesResult::__lenso_into_result(result)
+            })
+        }
+        fn remove_issue_relation(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::RemoveIssueRelationRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationRemoveIssueRelation> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::remove_issue_relation(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationRemoveIssueRelationResult::__lenso_into_result(result)
+            })
+        }
+        fn update_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::UpdateCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationUpdateComment> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::update_comment(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationUpdateCommentResult::__lenso_into_result(result)
+            })
+        }
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __lenso_native_lower_trait_object_projects_collaboration {
+    ($object:ty, $plugin:ty, $support:path) => {
+        use $support as __LensoNativeSupportProjectsCollaboration;
+        impl $crate::ProjectsCollaborationProvider for $object {
+        fn add_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::AddCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationAddComment> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::add_comment(plugin.as_ref(), context, request).await
+            })
+        }
+        fn add_issue_relation(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::AddIssueRelationRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationAddIssueRelation> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::add_issue_relation(plugin.as_ref(), context, request).await
+            })
+        }
+        fn create_project_update(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::CreateProjectUpdateRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationCreateProjectUpdate> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::create_project_update(plugin.as_ref(), context, request).await
+            })
+        }
+        fn delete_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::DeleteCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationDeleteComment> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::delete_comment(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_comments(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::ListCommentsRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationListComments> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::list_comments(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_project_updates(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::ListProjectUpdatesRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationListProjectUpdates> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::list_project_updates(plugin.as_ref(), context, request).await
+            })
+        }
+        fn remove_issue_relation(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::RemoveIssueRelationRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationRemoveIssueRelation> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::remove_issue_relation(plugin.as_ref(), context, request).await
+            })
+        }
+        fn update_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::UpdateCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationUpdateComment> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::update_comment(plugin.as_ref(), context, request).await
+            })
+        }
+        }
+    };
+}
+
 #[derive(Debug)]
 struct ProjectsCollaborationRequestEndpoint { provider: Rc<dyn ProjectsCollaborationProvider> }
 
@@ -1795,7 +1950,7 @@ macro_rules! __lenso_native_provide_projects_collaboration {
     }};
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ProjectsCollaborationClient {
     add_comment: NativeRequestHandle<ProjectsCollaborationAddComment>,
     add_issue_relation: NativeRequestHandle<ProjectsCollaborationAddIssueRelation>,
@@ -1809,6 +1964,13 @@ pub struct ProjectsCollaborationClient {
 impl ProjectsCollaborationClient {
     pub fn from_dependencies(dependencies: &PluginDependencies) -> Result<Self, RuntimeFailure> {
         <Self as CapabilityClient>::from_dependencies(dependencies)
+    }
+
+    pub fn from_requirement(
+        dependencies: &PluginDependencies,
+        requirement_id: &str,
+    ) -> Result<Self, RuntimeFailure> {
+        <Self as CapabilityClient>::from_requirement(dependencies, requirement_id)
     }
 
     pub async fn add_comment(&self, request: AddCommentRequest) -> Result<AddCommentResponse, ProjectsCollaborationAddCommentInvocationError> {
@@ -1928,6 +2090,14 @@ impl CapabilityClient for ProjectsCollaborationClient {
         })
     }
 
+    fn from_requirement(
+        dependencies: &PluginDependencies,
+        requirement_id: &str,
+    ) -> Result<Self, RuntimeFailure> {
+        let dependencies = dependencies.requirement(requirement_id)?;
+        Self::from_dependencies(&dependencies)
+    }
+
     fn already_connected() -> RuntimeFailure {
         RuntimeFailure::PluginFailure {
             detail: format!("Capability Port {CAPABILITY_ID} was connected more than once"),
@@ -1959,6 +2129,14 @@ impl CapabilityClientMany for ProjectsCollaborationClient {
                 ))
             })
             .collect()
+    }
+
+    fn many_from_requirement(
+        dependencies: &PluginDependencies,
+        requirement_id: &str,
+    ) -> Result<Vec<BoundCapabilityClient<Self>>, RuntimeFailure> {
+        let dependencies = dependencies.requirement(requirement_id)?;
+        Self::many_from_dependencies(&dependencies)
     }
 }
 

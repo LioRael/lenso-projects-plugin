@@ -1,0 +1,32 @@
+[package]
+name = "lenso-projects-agent-web-plugin"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Authenticated HTTP ingress for a bound Projects Agent Tool provider."
+
+[package.metadata.lenso]
+plugin-id = "lenso.projects.agent-web"
+root-slot = "web"
+
+[dependencies]
+lenso.workspace = true
+lenso-kernel.workspace = true
+lenso-auth-sdk.workspace = true
+lenso-capability-auth.workspace = true
+lenso-capability-http-endpoint.workspace = true
+lenso-capability-agent-tool-provider.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+lenso-app-plan = "0.4.1"
+lenso-native-adapter = "0.3.13"
+lenso-runner = "0.2.13"
+tokio.workspace = true
+time.workspace = true
