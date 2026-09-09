@@ -3,13 +3,16 @@ use std::{fmt, rc::Rc};
 use futures::future::LocalBoxFuture;
 use lenso_kernel::{InvocationContext, NativeRequestEndpoint, NativeRequestFuture, NativeRequestHandle, PluginDependencies, RequestCapability, RuntimeFailure};
 
-use lenso_plugin_authoring::{BoundCapabilityClient, CapabilityClient, CapabilityClientMany};
+use lenso_plugin_authoring::{BoundCapabilityClient, CapabilityClient, CapabilityClientMany, CapabilityReference};
 pub const CAPABILITY_ID: &str = "lenso.projects-admin@1";
 pub const DESCRIPTOR_VERSION: &str = "1.0.0";
+pub const DESCRIPTOR_DIGEST: &str = "sha256:0bea1174f6ddd70d6d2492c39a31a77c4417f390d01e23049496e1954a243647";
 pub const PORTABLE: bool = true;
 pub const CROSS_LANE_TRANSFER: bool = true;
 pub const PROJECTS_ADMIN_CAPABILITY_ID: &str = CAPABILITY_ID;
 pub const PROJECTS_ADMIN_DESCRIPTOR_VERSION: &str = DESCRIPTOR_VERSION;
+pub const PROJECTS_ADMIN_DESCRIPTOR_DIGEST: &str = DESCRIPTOR_DIGEST;
+pub const PROJECTS_ADMIN_CONTRACT: CapabilityReference<ProjectsAdminClient> = CapabilityReference::new(CAPABILITY_ID, DESCRIPTOR_VERSION, DESCRIPTOR_DIGEST);
 
 #[doc(hidden)]
 #[macro_export]
@@ -17,11 +20,23 @@ macro_rules! __lenso_provided_projects_admin { () => { "{\"capability_id\":\"len
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_required_projects_admin_client { () => { "{\"capability_id\":\"lenso.projects-admin@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}" }; }
+macro_rules! __lenso_required_projects_admin_client {
+    () => { "{\"capability_id\":\"lenso.projects-admin@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}" };
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-admin@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}") };
+}
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_required_many_projects_admin_client { () => { "{\"capability_id\":\"lenso.projects-admin@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}" }; }
+macro_rules! __lenso_required_optional_projects_admin_client {
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-admin@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"optional\"}") };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __lenso_required_many_projects_admin_client {
+    () => { "{\"capability_id\":\"lenso.projects-admin@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}" };
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-admin@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}") };
+}
 
 pub const ARCHIVE_PROJECT_STATUS_OPERATION: &str = "archive_project_status";
 pub const ARCHIVE_WORKFLOW_STATE_OPERATION: &str = "archive_workflow_state";
@@ -4170,6 +4185,341 @@ macro_rules! __lenso_native_lower_projects_admin {
     };
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __lenso_native_lower_object_projects_admin {
+    ($object:ty, $plugin:ty, $support:path) => {
+        use $support as __LensoNativeSupportProjectsAdmin;
+        impl $crate::ProjectsAdminProvider for $object {
+        fn archive_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ArchiveProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminArchiveProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::archive_project_status(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminArchiveProjectStatusResult::__lenso_into_result(result)
+            })
+        }
+        fn archive_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ArchiveWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminArchiveWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::archive_workflow_state(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminArchiveWorkflowStateResult::__lenso_into_result(result)
+            })
+        }
+        fn delete_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::DeleteProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminDeleteProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::delete_project_status(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminDeleteProjectStatusResult::__lenso_into_result(result)
+            })
+        }
+        fn delete_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::DeleteWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminDeleteWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::delete_workflow_state(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminDeleteWorkflowStateResult::__lenso_into_result(result)
+            })
+        }
+        fn get_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::GetProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminGetProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::get_project_status(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminGetProjectStatusResult::__lenso_into_result(result)
+            })
+        }
+        fn get_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::GetWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminGetWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::get_workflow_state(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminGetWorkflowStateResult::__lenso_into_result(result)
+            })
+        }
+        fn list_cycles(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListCyclesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListCycles> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_cycles(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminListCyclesResult::__lenso_into_result(result)
+            })
+        }
+        fn list_labels(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListLabelsRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListLabels> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_labels(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminListLabelsResult::__lenso_into_result(result)
+            })
+        }
+        fn list_milestones(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListMilestonesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListMilestones> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_milestones(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminListMilestonesResult::__lenso_into_result(result)
+            })
+        }
+        fn list_project_statuses(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListProjectStatusesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListProjectStatuses> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_project_statuses(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminListProjectStatusesResult::__lenso_into_result(result)
+            })
+        }
+        fn list_teams(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListTeamsRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListTeams> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_teams(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminListTeamsResult::__lenso_into_result(result)
+            })
+        }
+        fn list_workflow_states(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListWorkflowStatesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListWorkflowStates> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::list_workflow_states(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminListWorkflowStatesResult::__lenso_into_result(result)
+            })
+        }
+        fn put_cycle(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutCycleRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutCycle> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::put_cycle(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminPutCycleResult::__lenso_into_result(result)
+            })
+        }
+        fn put_label(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutLabelRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutLabel> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::put_label(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminPutLabelResult::__lenso_into_result(result)
+            })
+        }
+        fn put_milestone(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutMilestoneRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutMilestone> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::put_milestone(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminPutMilestoneResult::__lenso_into_result(result)
+            })
+        }
+        fn put_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::put_project_status(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminPutProjectStatusResult::__lenso_into_result(result)
+            })
+        }
+        fn put_team(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutTeamRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutTeam> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::put_team(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminPutTeamResult::__lenso_into_result(result)
+            })
+        }
+        fn put_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::put_workflow_state(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminPutWorkflowStateResult::__lenso_into_result(result)
+            })
+        }
+        fn reorder_project_statuses(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ReorderProjectStatusesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminReorderProjectStatuses> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::reorder_project_statuses(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminReorderProjectStatusesResult::__lenso_into_result(result)
+            })
+        }
+        fn reorder_workflow_states(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ReorderWorkflowStatesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminReorderWorkflowStates> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::reorder_workflow_states(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminReorderWorkflowStatesResult::__lenso_into_result(result)
+            })
+        }
+        fn set_team_member(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::SetTeamMemberRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminSetTeamMember> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::set_team_member(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsAdminSetTeamMemberResult::__lenso_into_result(result)
+            })
+        }
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __lenso_native_lower_trait_object_projects_admin {
+    ($object:ty, $plugin:ty, $support:path) => {
+        use $support as __LensoNativeSupportProjectsAdmin;
+        impl $crate::ProjectsAdminProvider for $object {
+        fn archive_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ArchiveProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminArchiveProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::archive_project_status(plugin.as_ref(), context, request).await
+            })
+        }
+        fn archive_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ArchiveWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminArchiveWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::archive_workflow_state(plugin.as_ref(), context, request).await
+            })
+        }
+        fn delete_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::DeleteProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminDeleteProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::delete_project_status(plugin.as_ref(), context, request).await
+            })
+        }
+        fn delete_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::DeleteWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminDeleteWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::delete_workflow_state(plugin.as_ref(), context, request).await
+            })
+        }
+        fn get_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::GetProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminGetProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::get_project_status(plugin.as_ref(), context, request).await
+            })
+        }
+        fn get_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::GetWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminGetWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::get_workflow_state(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_cycles(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListCyclesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListCycles> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::list_cycles(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_labels(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListLabelsRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListLabels> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::list_labels(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_milestones(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListMilestonesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListMilestones> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::list_milestones(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_project_statuses(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListProjectStatusesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListProjectStatuses> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::list_project_statuses(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_teams(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListTeamsRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListTeams> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::list_teams(plugin.as_ref(), context, request).await
+            })
+        }
+        fn list_workflow_states(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ListWorkflowStatesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminListWorkflowStates> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::list_workflow_states(plugin.as_ref(), context, request).await
+            })
+        }
+        fn put_cycle(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutCycleRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutCycle> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::put_cycle(plugin.as_ref(), context, request).await
+            })
+        }
+        fn put_label(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutLabelRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutLabel> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::put_label(plugin.as_ref(), context, request).await
+            })
+        }
+        fn put_milestone(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutMilestoneRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutMilestone> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::put_milestone(plugin.as_ref(), context, request).await
+            })
+        }
+        fn put_project_status(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutProjectStatusRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutProjectStatus> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::put_project_status(plugin.as_ref(), context, request).await
+            })
+        }
+        fn put_team(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutTeamRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutTeam> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::put_team(plugin.as_ref(), context, request).await
+            })
+        }
+        fn put_workflow_state(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::PutWorkflowStateRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminPutWorkflowState> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::put_workflow_state(plugin.as_ref(), context, request).await
+            })
+        }
+        fn reorder_project_statuses(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ReorderProjectStatusesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminReorderProjectStatuses> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::reorder_project_statuses(plugin.as_ref(), context, request).await
+            })
+        }
+        fn reorder_workflow_states(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::ReorderWorkflowStatesRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminReorderWorkflowStates> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::reorder_workflow_states(plugin.as_ref(), context, request).await
+            })
+        }
+        fn set_team_member(&self, context: __LensoNativeSupportProjectsAdmin::InvocationContext, request: $crate::SetTeamMemberRequest) -> __LensoNativeSupportProjectsAdmin::NativeRequestFuture<$crate::ProjectsAdminSetTeamMember> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsAdminProvider>::set_team_member(plugin.as_ref(), context, request).await
+            })
+        }
+        }
+    };
+}
+
 #[derive(Debug)]
 struct ProjectsAdminRequestEndpoint { provider: Rc<dyn ProjectsAdminProvider> }
 
@@ -4520,7 +4870,7 @@ macro_rules! __lenso_native_provide_projects_admin {
     }};
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ProjectsAdminClient {
     archive_project_status: NativeRequestHandle<ProjectsAdminArchiveProjectStatus>,
     archive_workflow_state: NativeRequestHandle<ProjectsAdminArchiveWorkflowState>,
@@ -4547,6 +4897,13 @@ pub struct ProjectsAdminClient {
 impl ProjectsAdminClient {
     pub fn from_dependencies(dependencies: &PluginDependencies) -> Result<Self, RuntimeFailure> {
         <Self as CapabilityClient>::from_dependencies(dependencies)
+    }
+
+    pub fn from_requirement(
+        dependencies: &PluginDependencies,
+        requirement_id: &str,
+    ) -> Result<Self, RuntimeFailure> {
+        <Self as CapabilityClient>::from_requirement(dependencies, requirement_id)
     }
 
     pub async fn archive_project_status(&self, request: ArchiveProjectStatusRequest) -> Result<ArchiveProjectStatusResponse, ProjectsAdminArchiveProjectStatusInvocationError> {
@@ -4835,6 +5192,14 @@ impl CapabilityClient for ProjectsAdminClient {
         })
     }
 
+    fn from_requirement(
+        dependencies: &PluginDependencies,
+        requirement_id: &str,
+    ) -> Result<Self, RuntimeFailure> {
+        let dependencies = dependencies.requirement(requirement_id)?;
+        Self::from_dependencies(&dependencies)
+    }
+
     fn already_connected() -> RuntimeFailure {
         RuntimeFailure::PluginFailure {
             detail: format!("Capability Port {CAPABILITY_ID} was connected more than once"),
@@ -4879,6 +5244,14 @@ impl CapabilityClientMany for ProjectsAdminClient {
                 ))
             })
             .collect()
+    }
+
+    fn many_from_requirement(
+        dependencies: &PluginDependencies,
+        requirement_id: &str,
+    ) -> Result<Vec<BoundCapabilityClient<Self>>, RuntimeFailure> {
+        let dependencies = dependencies.requirement(requirement_id)?;
+        Self::many_from_dependencies(&dependencies)
     }
 }
 

@@ -85,6 +85,10 @@ async fn put_team_and_workflow(
 }
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one ordered database scenario proves concurrency, history and restart invariants"
+)]
 async fn concurrent_idempotency_identifier_history_activity_and_restart() {
     let Some((database_url, schema_name, postgres)) = prepare().await else {
         return;
