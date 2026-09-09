@@ -12,3 +12,7 @@ environment restriction.
 Publish order is: `lenso-capability-projects`,
 `lenso-capability-projects-collaboration`, `lenso-capability-projects-admin`,
 then `lenso-projects-postgres-plugin`.
+
+Confirmed manual dispatch publishes unpublished versions even when main does not
+end at a release PR merge. `release_always = true` selects those versions; the
+workflow still requires `live=true`, `confirm=publish`, and the `main` ref.
