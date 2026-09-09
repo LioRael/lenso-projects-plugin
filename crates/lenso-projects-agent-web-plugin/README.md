@@ -34,3 +34,19 @@ a native Kernel with signed test assertions. It covers rejected credentials, use
 identity, actor forwarding, extra JSON fields, revocation and honest runtime failures.
 It is not a real browser-login or live-model acceptance test. Agent-side connection
 custody and the production business App assembly still need to consume these routes.
+
+### Delegated audience through the Tool adapter
+
+The parent login session and delegated child grant must permit
+`lenso.agent.tool-provider@2:execute` **and** every allowed final Projects
+operation, for example `lenso.projects@1:get_issue` and
+`lenso.projects@1:update_issue`. Kernel filters authenticated context at each
+Capability hop. Granting only final operations loses the assertion at the Tool
+Provider boundary; granting only the intermediate hop does not authorize any
+Projects operation. Add `lenso.agent.tool-provider@2:catalog` only for the
+credential-protected catalog; the public manifest requires no credential.
+
+Use a narrowed grant instead of copying the complete login audience. The
+[Agent acceptance App](https://github.com/LioRael/lenso-agent/tree/main/scripts/projects-acceptance)
+exercises both permitted updates and denial of an unlisted final operation with
+real Auth, Organization, ACL and Projects providers backed by PostgreSQL.
