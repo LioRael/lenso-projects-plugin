@@ -1,9 +1,10 @@
 {
   "id": "lenso.projects@1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "portable": true,
   "cross_lane_transfer": true,
   "operations": [
+    {"name":"list_issue_workflow_states","interaction":"request","request_schema":"schemas/list-issue-workflow-states-request.schema.json","response_schema":"schemas/list-issue-workflow-states-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
     {"name":"create_project","interaction":"request","request_schema":"schemas/create-project-request.schema.json","response_schema":"schemas/project-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
     {"name":"get_project","interaction":"request","request_schema":"schemas/get-project-request.schema.json","response_schema":"schemas/project-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},
     {"name":"list_projects","interaction":"request","request_schema":"schemas/list-projects-request.schema.json","response_schema":"schemas/list-projects-response.schema.json","domain_error_schema":"schemas/projects-error.schema.json"},

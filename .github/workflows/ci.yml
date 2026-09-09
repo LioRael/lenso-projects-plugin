@@ -43,5 +43,5 @@ jobs:
         run: >-
           cargo test --locked -p lenso-projects-postgres-plugin
           --features postgres-acceptance
-          postgres_tests::concurrent_idempotency_identifier_history_activity_and_restart
+          postgres_tests::
           -- --nocapture

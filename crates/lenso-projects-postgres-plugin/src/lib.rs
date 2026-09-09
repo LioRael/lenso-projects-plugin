@@ -2039,6 +2039,38 @@ impl ProjectsPlugin {
             |failure| project_error!(failure, CreateIssueError),
         )
     }
+    async fn list_issue_workflow_states(
+        &self,
+        context: Ctx,
+        request: projects::ListIssueWorkflowStatesRequest,
+    ) -> PluginResult<
+        projects::ListIssueWorkflowStatesResponse,
+        projects::ListIssueWorkflowStatesError,
+    > {
+        let auth = auth_project!(
+            self.authorize(
+                &context,
+                &self.config.project_callers,
+                projects::CAPABILITY_ID,
+                projects::LIST_ISSUE_WORKFLOW_STATES_OPERATION,
+                &request.organization_id,
+                "projects.read"
+            )
+            .await,
+            ListIssueWorkflowStatesError
+        );
+        if !valid_id(&request.team_id) || !valid_page(request.limit, &request.after) {
+            return Err(PluginError::domain(
+                projects::ListIssueWorkflowStatesError::InvalidRequest,
+            ));
+        }
+        let prepared = self.prepared().map_err(PluginError::runtime)?;
+        map_storage(
+            storage::list_issue_workflow_states(&prepared.postgres, &auth.actor, &request).await,
+            |failure| project_error!(failure, ListIssueWorkflowStatesError),
+        )
+    }
+
     async fn get_issue(
         &self,
         context: Ctx,

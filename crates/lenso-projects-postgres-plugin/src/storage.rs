@@ -4203,3 +4203,62 @@ pub(crate) async fn apply_retention(
         .map_err(|error| runtime("commit Projects retention", error))?;
     Ok(lenso_capability_retention_participant::ApplyRetentionResponse { receipt })
 }
+
+pub(crate) async fn list_issue_workflow_states(
+    postgres: &OwnedPostgres,
+    actor: &str,
+    request: &projects::ListIssueWorkflowStatesRequest,
+) -> Result<projects::ListIssueWorkflowStatesResponse, StorageError> {
+    let after = parse_cursor(&request.after)?;
+    // One statement keeps Team visibility and returned state data in the same snapshot.
+    let row = sqlx::query(
+        r"
+        SELECT COALESCE((SELECT jsonb_agg(page.value ORDER BY page.row_seq) FROM (
+            SELECT w.row_seq, jsonb_build_object('cursor',w.row_seq::text,'state',
+                jsonb_build_object('state_id',w.state_id,'organization_id',w.organization_id,
+                    'team_id',w.team_id,'name',w.name,'category',w.category,'color',w.color,
+                    'position',w.position,'archived',w.archived,'archived_at',w.archived_at,
+                    'revision',w.revision::text)) AS value
+            FROM workflow_states w WHERE w.organization_id=t.organization_id AND w.team_id=t.team_id
+                AND w.row_seq>$4 ORDER BY w.row_seq LIMIT $5
+        ) page),'[]'::jsonb) AS items
+        FROM teams t WHERE t.organization_id=$1 AND t.team_id=$2
+            AND (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm
+                WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id
+                    AND tm.subject=$3 AND tm.active))
+    ",
+    )
+    .bind(&request.organization_id)
+    .bind(&request.team_id)
+    .bind(actor)
+    .bind(after)
+    .bind(request.limit + 1)
+    .fetch_optional(postgres.pool())
+    .await
+    .map_err(|error| runtime("list visible issue workflow states", error))?
+    .ok_or(DomainFailure::NotFound)?;
+    let values: Value = row
+        .try_get("items")
+        .map_err(|error| runtime("decode workflow page", error))?;
+    let values = values
+        .as_array()
+        .ok_or_else(|| runtime("decode workflow page", "expected array"))?;
+    let limit = usize::try_from(request.limit).map_err(|_| DomainFailure::InvalidRequest)?;
+    let next_cursor = if values.len() > limit {
+        values
+            .get(limit - 1)
+            .and_then(|value| value["cursor"].as_str())
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    let items = values
+        .iter()
+        .take(limit)
+        .map(|value| {
+            serde_json::from_value(value["state"].clone())
+                .map_err(|error| runtime("decode workflow state", error))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(projects::ListIssueWorkflowStatesResponse { items, next_cursor })
+}

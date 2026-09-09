@@ -953,3 +953,70 @@ async fn concurrent_idempotency_identifier_history_activity_and_restart() {
 
     cleanup(&database_url, &schema_name, restarted).await;
 }
+
+#[tokio::test]
+async fn issue_workflow_catalog_preserves_team_visibility_and_pagination() {
+    let Some((database_url, schema_name, postgres)) = prepare().await else {
+        return;
+    };
+    put_team_and_workflow(&postgres, "team_eng", "ENG", "state_started").await;
+    let mut request = projects::ListIssueWorkflowStatesRequest {
+        organization_id: "org_acme".into(),
+        team_id: "team_eng".into(),
+        after: None,
+        limit: 2,
+    };
+    let first = storage::list_issue_workflow_states(&postgres, "usr_member", &request)
+        .await
+        .unwrap();
+    assert_eq!(first.items.len(), 2);
+    request.after = first.next_cursor;
+    assert!(request.after.is_some());
+    let second = storage::list_issue_workflow_states(&postgres, "usr_member", &request)
+        .await
+        .unwrap();
+    assert_eq!(second.items.len(), 2);
+    assert!(second.items.iter().all(|state| {
+        !first
+            .items
+            .iter()
+            .any(|previous| previous.state_id == state.state_id)
+    }));
+    sqlx::query("UPDATE teams SET private=true WHERE team_id=$1")
+        .bind("team_eng")
+        .execute(postgres.pool())
+        .await
+        .unwrap();
+    assert!(matches!(
+        storage::list_issue_workflow_states(&postgres, "usr_member", &request).await,
+        Err(StorageError::Domain(DomainFailure::NotFound))
+    ));
+    storage::set_team_member(
+        &postgres,
+        "admin-api",
+        "usr_admin",
+        &admin::SetTeamMemberRequest {
+            idempotency_key: "membership".into(),
+            organization_id: "org_acme".into(),
+            team_id: "team_eng".into(),
+            subject: "usr_member".into(),
+            active: true,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        storage::list_issue_workflow_states(&postgres, "usr_member", &request)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    request.team_id = "missing".into();
+    assert!(matches!(
+        storage::list_issue_workflow_states(&postgres, "usr_member", &request).await,
+        Err(StorageError::Domain(DomainFailure::NotFound))
+    ));
+    cleanup(&database_url, &schema_name, postgres).await;
+}
