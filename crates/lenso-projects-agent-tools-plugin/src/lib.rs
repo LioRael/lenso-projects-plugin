@@ -18,6 +18,7 @@ use serde::{Serialize, de::DeserializeOwned};
 pub const LIST_PROJECTS_TOOL: &str = "projects_list_projects";
 pub const GET_PROJECT_TOOL: &str = "projects_get_project";
 pub const LIST_ISSUES_TOOL: &str = "projects_list_issues";
+pub const LIST_ISSUE_WORKFLOW_STATES_TOOL: &str = "projects_list_issue_workflow_states";
 pub const GET_ISSUE_TOOL: &str = "projects_get_issue";
 pub const CREATE_ISSUE_TOOL: &str = "projects_create_issue";
 pub const UPDATE_ISSUE_TOOL: &str = "projects_update_issue";
@@ -46,6 +47,8 @@ impl ProjectsAgentToolsPlugin {
         }))
     }
 
+    // Keep the typed Tool-to-Capability dispatch visible in one match.
+    #[allow(clippy::too_many_lines)]
     async fn execute(
         &self,
         context: Ctx,
@@ -87,6 +90,16 @@ impl ProjectsAgentToolsPlugin {
                     LIST_ISSUES_TOOL,
                     projects::ProjectsListIssuesInvocationError::Domain,
                     projects::ProjectsListIssuesInvocationError::Runtime
+                )
+            }
+            LIST_ISSUE_WORKFLOW_STATES_TOOL => {
+                let arguments = decode::<projects::ListIssueWorkflowStatesRequest>(&request)?;
+                invoke!(
+                    self.projects
+                        .list_issue_workflow_states_with_context(context, arguments),
+                    LIST_ISSUE_WORKFLOW_STATES_TOOL,
+                    projects::ProjectsListIssueWorkflowStatesInvocationError::Domain,
+                    projects::ProjectsListIssueWorkflowStatesInvocationError::Runtime
                 )
             }
             GET_ISSUE_TOOL => {
@@ -170,6 +183,14 @@ fn tool_definitions() -> Vec<ToolDefinition> {
             LIST_ISSUES_TOOL,
             "List visible Issues with optional Project, Team, and workflow-state filters.",
             include_str!("../../lenso-capability-projects/schemas/list-issues-request.schema.json"),
+            ToolExecutionClass::ParallelSafe,
+        ),
+        tool(
+            LIST_ISSUE_WORKFLOW_STATES_TOOL,
+            "List workflow states for a visible Team before updating an Issue. Choose an unarchived state_id; follow next_cursor for more states.",
+            include_str!(
+                "../../lenso-capability-projects/schemas/list-issue-workflow-states-request.schema.json"
+            ),
             ToolExecutionClass::ParallelSafe,
         ),
         tool(
@@ -318,6 +339,7 @@ impl_projects_domain_error!(
     projects::GetIssueError,
     projects::GetProjectError,
     projects::ListIssuesError,
+    projects::ListIssueWorkflowStatesError,
     projects::ListProjectsError,
     projects::MoveIssueError,
     projects::UpdateIssueError,
@@ -385,15 +407,15 @@ mod tests {
     }
 
     #[test]
-    fn catalog_has_five_parallel_reads_and_four_exclusive_mutations() {
+    fn catalog_has_six_parallel_reads_and_four_exclusive_mutations() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 10);
         assert_eq!(
             tools
                 .iter()
                 .filter(|tool| tool.execution == ToolExecutionClass::ParallelSafe)
                 .count(),
-            5
+            6
         );
         assert_eq!(
             tools

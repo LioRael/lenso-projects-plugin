@@ -5,7 +5,7 @@ use lenso_kernel::{InvocationContext, NativeRequestEndpoint, NativeRequestFuture
 
 use lenso_plugin_authoring::{BoundCapabilityClient, CapabilityClient, CapabilityClientMany};
 pub const CAPABILITY_ID: &str = "lenso.projects@1";
-pub const DESCRIPTOR_VERSION: &str = "1.0.0";
+pub const DESCRIPTOR_VERSION: &str = "1.1.0";
 pub const PORTABLE: bool = true;
 pub const CROSS_LANE_TRANSFER: bool = true;
 pub const PROJECTS_CAPABILITY_ID: &str = CAPABILITY_ID;
@@ -13,15 +13,15 @@ pub const PROJECTS_DESCRIPTOR_VERSION: &str = DESCRIPTOR_VERSION;
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_provided_projects { () => { "{\"capability_id\":\"lenso.projects@1\",\"descriptor_version\":\"1.0.0\",\"operations\":[\"archive_issue\",\"archive_project\",\"create_issue\",\"create_project\",\"get_issue\",\"get_project\",\"list_activity\",\"list_issues\",\"list_projects\",\"move_issue\",\"put_external_link\",\"update_issue\",\"update_project\"],\"operation_kinds\":{},\"default_admission\":{\"queue_capacity\":0,\"max_concurrency\":1},\"operation_admissions\":{},\"event_admission\":null,\"cross_lane_transfer\":true}" }; }
+macro_rules! __lenso_provided_projects { () => { "{\"capability_id\":\"lenso.projects@1\",\"descriptor_version\":\"1.1.0\",\"operations\":[\"archive_issue\",\"archive_project\",\"create_issue\",\"create_project\",\"get_issue\",\"get_project\",\"list_activity\",\"list_issue_workflow_states\",\"list_issues\",\"list_projects\",\"move_issue\",\"put_external_link\",\"update_issue\",\"update_project\"],\"operation_kinds\":{},\"default_admission\":{\"queue_capacity\":0,\"max_concurrency\":1},\"operation_admissions\":{},\"event_admission\":null,\"cross_lane_transfer\":true}" }; }
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_required_projects_client { () => { "{\"capability_id\":\"lenso.projects@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}" }; }
+macro_rules! __lenso_required_projects_client { () => { "{\"capability_id\":\"lenso.projects@1\",\"descriptor_version\":\"1.1.0\",\"cardinality\":\"one\"}" }; }
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_required_many_projects_client { () => { "{\"capability_id\":\"lenso.projects@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}" }; }
+macro_rules! __lenso_required_many_projects_client { () => { "{\"capability_id\":\"lenso.projects@1\",\"descriptor_version\":\"1.1.0\",\"cardinality\":\"many\"}" }; }
 
 pub const ARCHIVE_ISSUE_OPERATION: &str = "archive_issue";
 pub const ARCHIVE_PROJECT_OPERATION: &str = "archive_project";
@@ -30,6 +30,7 @@ pub const CREATE_PROJECT_OPERATION: &str = "create_project";
 pub const GET_ISSUE_OPERATION: &str = "get_issue";
 pub const GET_PROJECT_OPERATION: &str = "get_project";
 pub const LIST_ACTIVITY_OPERATION: &str = "list_activity";
+pub const LIST_ISSUE_WORKFLOW_STATES_OPERATION: &str = "list_issue_workflow_states";
 pub const LIST_ISSUES_OPERATION: &str = "list_issues";
 pub const LIST_PROJECTS_OPERATION: &str = "list_projects";
 pub const MOVE_ISSUE_OPERATION: &str = "move_issue";
@@ -707,6 +708,100 @@ pub struct Activity {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ListActivityError {
+    CycleNotFound,
+    Forbidden,
+    IdempotencyConflict,
+    IdentifierConflict,
+    InvalidRequest,
+    LabelNotFound,
+    MilestoneNotFound,
+    NotFound,
+    ParentNotFound,
+    PrivateTeam,
+    ProjectStatusNotFound,
+    RevisionConflict,
+    TeamNotFound,
+    Unauthenticated,
+    WorkflowStateNotFound,
+    Unknown(UnknownDomainError),
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ListIssueWorkflowStatesRequest {
+    #[serde(rename = "after")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub after: Option<String>,
+    #[serde(rename = "limit")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub limit: i64,
+    #[serde(rename = "organization_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub organization_id: String,
+    #[serde(rename = "team_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub team_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ListIssueWorkflowStatesResponse {
+    #[serde(rename = "items")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub items: Vec<State>,
+    #[serde(rename = "next_cursor")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct State {
+    #[serde(rename = "archived")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub archived: bool,
+    #[serde(rename = "archived_at")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub archived_at: Option<Timestamp>,
+    #[serde(rename = "category")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub category: WorkflowCategory,
+    #[serde(rename = "color")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub color: String,
+    #[serde(rename = "name")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub name: String,
+    #[serde(rename = "organization_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub organization_id: String,
+    #[serde(rename = "position")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub position: i64,
+    #[serde(rename = "revision")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub revision: String,
+    #[serde(rename = "state_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub state_id: String,
+    #[serde(rename = "team_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub team_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum WorkflowCategory {
+    #[serde(rename = "backlog")]
+    Backlog,
+    #[serde(rename = "unstarted")]
+    Unstarted,
+    #[serde(rename = "started")]
+    Started,
+    #[serde(rename = "completed")]
+    Completed,
+    #[serde(rename = "canceled")]
+    Canceled,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ListIssueWorkflowStatesError {
     CycleNotFound,
     Forbidden,
     IdempotencyConflict,
@@ -1492,6 +1587,29 @@ impl RequestCapability for ProjectsListActivity {
 }
 
 #[derive(Debug)]
+pub struct ProjectsListIssueWorkflowStates;
+impl RequestCapability for ProjectsListIssueWorkflowStates {
+    type Request = ListIssueWorkflowStatesRequest;
+    type Response = ListIssueWorkflowStatesResponse;
+    type DomainError = ListIssueWorkflowStatesError;
+    const ID: &'static str = CAPABILITY_ID;
+    const DESCRIPTOR_VERSION: &'static str = DESCRIPTOR_VERSION;
+
+    fn invoke_native(endpoint: &dyn NativeRequestEndpoint, operation: &str, request: Self::Request, context: InvocationContext) -> NativeRequestFuture<Self> {
+        if operation != LIST_ISSUE_WORKFLOW_STATES_OPERATION {
+            return lenso_kernel::invoke_typed_or_erased_native_request::<Self>(endpoint, operation, request, context);
+        }
+        let Some(typed_endpoint) = endpoint
+            .typed_endpoint()
+            .and_then(|endpoint| endpoint.downcast_ref::<ProjectsRequestEndpoint>())
+        else {
+            return lenso_kernel::invoke_typed_or_erased_native_request::<Self>(endpoint, operation, request, context);
+        };
+        Rc::clone(&typed_endpoint.provider).list_issue_workflow_states(context, request)
+    }
+}
+
+#[derive(Debug)]
 pub struct ProjectsListIssues;
 impl RequestCapability for ProjectsListIssues {
     type Request = ListIssuesRequest;
@@ -2154,6 +2272,81 @@ impl<'de> serde::Deserialize<'de> for ListActivityError {
     }
 }
 
+impl serde::Serialize for ListIssueWorkflowStatesError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::CycleNotFound => serializer.serialize_str("cycle_not_found"),
+            Self::Forbidden => serializer.serialize_str("forbidden"),
+            Self::IdempotencyConflict => serializer.serialize_str("idempotency_conflict"),
+            Self::IdentifierConflict => serializer.serialize_str("identifier_conflict"),
+            Self::InvalidRequest => serializer.serialize_str("invalid_request"),
+            Self::LabelNotFound => serializer.serialize_str("label_not_found"),
+            Self::MilestoneNotFound => serializer.serialize_str("milestone_not_found"),
+            Self::NotFound => serializer.serialize_str("not_found"),
+            Self::ParentNotFound => serializer.serialize_str("parent_not_found"),
+            Self::PrivateTeam => serializer.serialize_str("private_team"),
+            Self::ProjectStatusNotFound => serializer.serialize_str("project_status_not_found"),
+            Self::RevisionConflict => serializer.serialize_str("revision_conflict"),
+            Self::TeamNotFound => serializer.serialize_str("team_not_found"),
+            Self::Unauthenticated => serializer.serialize_str("unauthenticated"),
+            Self::WorkflowStateNotFound => serializer.serialize_str("workflow_state_not_found"),
+            Self::Unknown(value) => {
+                let mut map = serializer.serialize_map(Some(1 + usize::from(value.payload.is_some()) + value.extra.len()))?;
+                map.serialize_entry("code", &value.code)?;
+                if let Some(payload) = &value.payload {
+                    map.serialize_entry("payload", payload)?;
+                }
+                for (key, extra) in &value.extra {
+                    map.serialize_entry(key, extra)?;
+                }
+                map.end()
+            },
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ListIssueWorkflowStatesError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::String(code) => match code.as_str() {
+                "cycle_not_found" => Ok(Self::CycleNotFound),
+                "forbidden" => Ok(Self::Forbidden),
+                "idempotency_conflict" => Ok(Self::IdempotencyConflict),
+                "identifier_conflict" => Ok(Self::IdentifierConflict),
+                "invalid_request" => Ok(Self::InvalidRequest),
+                "label_not_found" => Ok(Self::LabelNotFound),
+                "milestone_not_found" => Ok(Self::MilestoneNotFound),
+                "not_found" => Ok(Self::NotFound),
+                "parent_not_found" => Ok(Self::ParentNotFound),
+                "private_team" => Ok(Self::PrivateTeam),
+                "project_status_not_found" => Ok(Self::ProjectStatusNotFound),
+                "revision_conflict" => Ok(Self::RevisionConflict),
+                "team_not_found" => Ok(Self::TeamNotFound),
+                "unauthenticated" => Ok(Self::Unauthenticated),
+                "workflow_state_not_found" => Ok(Self::WorkflowStateNotFound),
+                _ => Ok(Self::Unknown(UnknownDomainError { code, payload: None, extra: std::collections::BTreeMap::new() })),
+            },
+            serde_json::Value::Object(mut object) => {
+                let Some(code) = object.remove("code").and_then(|value| value.as_str().map(ToOwned::to_owned)) else {
+                    return Err(serde::de::Error::custom("Domain Error object is missing a string code"));
+                };
+                let payload = object.remove("payload");
+                let extra = object.into_iter().collect::<std::collections::BTreeMap<_, _>>();
+                Ok(Self::Unknown(UnknownDomainError { code, payload, extra }))
+            }
+            other => Err(serde::de::Error::custom(format!("Domain Error must be a string or object, got {other}"))),
+        }
+    }
+}
+
 impl serde::Serialize for ListIssuesError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -2653,6 +2846,13 @@ pub fn decode_list_activity_response(wire: &str) -> Result<ListActivityResponse,
 pub fn encode_list_activity_error(value: &ListActivityError) -> Result<String, serde_json::Error> { encode_portable_json(value) }
 pub fn decode_list_activity_error(wire: &str) -> Result<ListActivityError, serde_json::Error> { decode_portable_json(wire) }
 
+pub fn encode_list_issue_workflow_states_request(value: &ListIssueWorkflowStatesRequest) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_list_issue_workflow_states_request(wire: &str) -> Result<ListIssueWorkflowStatesRequest, serde_json::Error> { decode_portable_json(wire) }
+pub fn encode_list_issue_workflow_states_response(value: &ListIssueWorkflowStatesResponse) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_list_issue_workflow_states_response(wire: &str) -> Result<ListIssueWorkflowStatesResponse, serde_json::Error> { decode_portable_json(wire) }
+pub fn encode_list_issue_workflow_states_error(value: &ListIssueWorkflowStatesError) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_list_issue_workflow_states_error(wire: &str) -> Result<ListIssueWorkflowStatesError, serde_json::Error> { decode_portable_json(wire) }
+
 pub fn encode_list_issues_request(value: &ListIssuesRequest) -> Result<String, serde_json::Error> { encode_portable_json(value) }
 pub fn decode_list_issues_request(wire: &str) -> Result<ListIssuesRequest, serde_json::Error> { decode_portable_json(wire) }
 pub fn encode_list_issues_response(value: &ListIssuesResponse) -> Result<String, serde_json::Error> { encode_portable_json(value) }
@@ -2899,6 +3099,35 @@ impl __LensoIntoProjectsListActivityResult for Result<ListActivityResponse, Proj
 }
 
 #[doc(hidden)]
+pub trait __LensoIntoProjectsListIssueWorkflowStatesResult {
+    fn __lenso_into_result(self) -> Result<Result<ListIssueWorkflowStatesResponse, ListIssueWorkflowStatesError>, RuntimeFailure>;
+}
+impl __LensoIntoProjectsListIssueWorkflowStatesResult for Result<ListIssueWorkflowStatesResponse, ListIssueWorkflowStatesError> {
+    fn __lenso_into_result(self) -> Result<Result<ListIssueWorkflowStatesResponse, ListIssueWorkflowStatesError>, RuntimeFailure> { Ok(self) }
+}
+impl __LensoIntoProjectsListIssueWorkflowStatesResult for Result<Result<ListIssueWorkflowStatesResponse, ListIssueWorkflowStatesError>, RuntimeFailure> {
+    fn __lenso_into_result(self) -> Result<Result<ListIssueWorkflowStatesResponse, ListIssueWorkflowStatesError>, RuntimeFailure> { self }
+}
+impl __LensoIntoProjectsListIssueWorkflowStatesResult for Result<ListIssueWorkflowStatesResponse, lenso_plugin_authoring::PluginError<ListIssueWorkflowStatesError, RuntimeFailure>> {
+    fn __lenso_into_result(self) -> Result<Result<ListIssueWorkflowStatesResponse, ListIssueWorkflowStatesError>, RuntimeFailure> {
+        match self {
+            Ok(value) => Ok(Ok(value)),
+            Err(lenso_plugin_authoring::PluginError::Domain(error)) => Ok(Err(error)),
+            Err(lenso_plugin_authoring::PluginError::Runtime(error)) => Err(error),
+        }
+    }
+}
+impl __LensoIntoProjectsListIssueWorkflowStatesResult for Result<ListIssueWorkflowStatesResponse, ProjectsListIssueWorkflowStatesInvocationError> {
+    fn __lenso_into_result(self) -> Result<Result<ListIssueWorkflowStatesResponse, ListIssueWorkflowStatesError>, RuntimeFailure> {
+        match self {
+            Ok(value) => Ok(Ok(value)),
+            Err(ProjectsListIssueWorkflowStatesInvocationError::Domain(error)) => Ok(Err(error)),
+            Err(ProjectsListIssueWorkflowStatesInvocationError::Runtime(error)) => Err(error),
+        }
+    }
+}
+
+#[doc(hidden)]
 pub trait __LensoIntoProjectsListIssuesResult {
     fn __lenso_into_result(self) -> Result<Result<ListIssuesResponse, ListIssuesError>, RuntimeFailure>;
 }
@@ -3080,6 +3309,7 @@ pub trait ProjectsProvider: fmt::Debug + 'static {
     fn get_issue(&self, context: InvocationContext, request: GetIssueRequest) -> NativeRequestFuture<ProjectsGetIssue>;
     fn get_project(&self, context: InvocationContext, request: GetProjectRequest) -> NativeRequestFuture<ProjectsGetProject>;
     fn list_activity(&self, context: InvocationContext, request: ListActivityRequest) -> NativeRequestFuture<ProjectsListActivity>;
+    fn list_issue_workflow_states(&self, context: InvocationContext, request: ListIssueWorkflowStatesRequest) -> NativeRequestFuture<ProjectsListIssueWorkflowStates>;
     fn list_issues(&self, context: InvocationContext, request: ListIssuesRequest) -> NativeRequestFuture<ProjectsListIssues>;
     fn list_projects(&self, context: InvocationContext, request: ListProjectsRequest) -> NativeRequestFuture<ProjectsListProjects>;
     fn move_issue(&self, context: InvocationContext, request: MoveIssueRequest) -> NativeRequestFuture<ProjectsMoveIssue>;
@@ -3141,6 +3371,13 @@ macro_rules! __lenso_native_lower_projects {
             ::std::boxed::Box::pin(async move {
                 let result = <$plugin>::list_activity(&plugin, context, request).await;
                 $crate::__LensoIntoProjectsListActivityResult::__lenso_into_result(result)
+            })
+        }
+        fn list_issue_workflow_states(&self, context: __LensoNativeSupportProjects::InvocationContext, request: $crate::ListIssueWorkflowStatesRequest) -> __LensoNativeSupportProjects::NativeRequestFuture<$crate::ProjectsListIssueWorkflowStates> {
+            let plugin = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let result = <$plugin>::list_issue_workflow_states(&plugin, context, request).await;
+                $crate::__LensoIntoProjectsListIssueWorkflowStatesResult::__lenso_into_result(result)
             })
         }
         fn list_issues(&self, context: __LensoNativeSupportProjects::InvocationContext, request: $crate::ListIssuesRequest) -> __LensoNativeSupportProjects::NativeRequestFuture<$crate::ProjectsListIssues> {
@@ -3213,6 +3450,7 @@ impl<P: ProjectsProvider> NativeRequestEndpoint for ProjectsEndpoint<P> {
         GET_ISSUE_OPERATION,
         GET_PROJECT_OPERATION,
         LIST_ACTIVITY_OPERATION,
+        LIST_ISSUE_WORKFLOW_STATES_OPERATION,
         LIST_ISSUES_OPERATION,
         LIST_PROJECTS_OPERATION,
         MOVE_ISSUE_OPERATION,
@@ -3306,6 +3544,19 @@ impl<P: ProjectsProvider> NativeRequestEndpoint for ProjectsEndpoint<P> {
                     return Box::pin(futures::future::ready(Err(RuntimeFailure::ProtocolViolation { capability: CAPABILITY_ID })));
                 };
                 let invocation = Rc::clone(&self.provider).list_activity(context, *request);
+                Box::pin(async move {
+                    invocation.await.map(|result| {
+                        result
+                            .map(|value| Box::new(value) as Box<dyn std::any::Any>)
+                            .map_err(|error| Box::new(error) as Box<dyn std::any::Any>)
+                    })
+                })
+            },
+            LIST_ISSUE_WORKFLOW_STATES_OPERATION => {
+                let Ok(request) = request.downcast::<ListIssueWorkflowStatesRequest>() else {
+                    return Box::pin(futures::future::ready(Err(RuntimeFailure::ProtocolViolation { capability: CAPABILITY_ID })));
+                };
+                let invocation = Rc::clone(&self.provider).list_issue_workflow_states(context, *request);
                 Box::pin(async move {
                     invocation.await.map(|result| {
                         result
@@ -3436,6 +3687,7 @@ pub struct ProjectsClient {
     get_issue: NativeRequestHandle<ProjectsGetIssue>,
     get_project: NativeRequestHandle<ProjectsGetProject>,
     list_activity: NativeRequestHandle<ProjectsListActivity>,
+    list_issue_workflow_states: NativeRequestHandle<ProjectsListIssueWorkflowStates>,
     list_issues: NativeRequestHandle<ProjectsListIssues>,
     list_projects: NativeRequestHandle<ProjectsListProjects>,
     move_issue: NativeRequestHandle<ProjectsMoveIssue>,
@@ -3532,6 +3784,18 @@ impl ProjectsClient {
             .map_err(ProjectsListActivityInvocationError::Domain)
     }
 
+    pub async fn list_issue_workflow_states(&self, request: ListIssueWorkflowStatesRequest) -> Result<ListIssueWorkflowStatesResponse, ProjectsListIssueWorkflowStatesInvocationError> {
+        self.list_issue_workflow_states.invoke(LIST_ISSUE_WORKFLOW_STATES_OPERATION, request).await
+            .map_err(ProjectsListIssueWorkflowStatesInvocationError::Runtime)?
+            .map_err(ProjectsListIssueWorkflowStatesInvocationError::Domain)
+    }
+
+    pub async fn list_issue_workflow_states_with_context(&self, context: InvocationContext, request: ListIssueWorkflowStatesRequest) -> Result<ListIssueWorkflowStatesResponse, ProjectsListIssueWorkflowStatesInvocationError> {
+        self.list_issue_workflow_states.invoke_with_context(LIST_ISSUE_WORKFLOW_STATES_OPERATION, context, request).await
+            .map_err(ProjectsListIssueWorkflowStatesInvocationError::Runtime)?
+            .map_err(ProjectsListIssueWorkflowStatesInvocationError::Domain)
+    }
+
     pub async fn list_issues(&self, request: ListIssuesRequest) -> Result<ListIssuesResponse, ProjectsListIssuesInvocationError> {
         self.list_issues.invoke(LIST_ISSUES_OPERATION, request).await
             .map_err(ProjectsListIssuesInvocationError::Runtime)?
@@ -3621,6 +3885,7 @@ impl CapabilityClient for ProjectsClient {
             get_issue: dependencies.one::<ProjectsGetIssue>()?,
             get_project: dependencies.one::<ProjectsGetProject>()?,
             list_activity: dependencies.one::<ProjectsListActivity>()?,
+            list_issue_workflow_states: dependencies.one::<ProjectsListIssueWorkflowStates>()?,
             list_issues: dependencies.one::<ProjectsListIssues>()?,
             list_projects: dependencies.one::<ProjectsListProjects>()?,
             move_issue: dependencies.one::<ProjectsMoveIssue>()?,
@@ -3656,6 +3921,7 @@ impl CapabilityClientMany for ProjectsClient {
                     get_issue: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsGetIssue>()?,
                     get_project: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsGetProject>()?,
                     list_activity: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsListActivity>()?,
+                    list_issue_workflow_states: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsListIssueWorkflowStates>()?,
                     list_issues: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsListIssues>()?,
                     list_projects: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsListProjects>()?,
                     move_issue: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsMoveIssue>()?,
@@ -3702,6 +3968,11 @@ pub enum ProjectsGetProjectInvocationError {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProjectsListActivityInvocationError {
     Domain(ListActivityError),
+    Runtime(RuntimeFailure),
+}
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProjectsListIssueWorkflowStatesInvocationError {
+    Domain(ListIssueWorkflowStatesError),
     Runtime(RuntimeFailure),
 }
 #[derive(Clone, Debug, PartialEq)]

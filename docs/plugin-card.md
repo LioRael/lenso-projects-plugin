@@ -95,3 +95,21 @@ backfill from that Team rather than replaying an old actor-scoped cursor.
 This boundary is provider-neutral. A GitHub sync Plugin can consume it without
 Projects owning GitHub tokens, installations, webhooks, repositories, or API
 types.
+
+
+## Issue workflow catalog for delegated consumers
+
+`lenso.projects@1` version 1.1.0 adds `list_issue_workflow_states`. It accepts an
+organization, Team and bounded cursor page and returns the Team's state catalog.
+The provider requires an operation-audienced user assertion, an allowed project
+caller, active organization membership and `projects.read`. It does not require
+`projects.admin`. The storage query evaluates Team visibility and catalog rows
+in one statement; missing Teams and inaccessible private Teams both return
+`NotFound`.
+
+The Agent adapter exposes `projects_list_issue_workflow_states` as a parallel
+read. A consumer reads the Issue, obtains states for its Team, selects an
+unarchived state, and preserves every other editable field and expected revision
+when updating. The administrative catalog operations retain their existing
+administration policy. Browser login and delegated credential custody remain
+Auth/Agent integration work; this operation alone does not establish identity.
