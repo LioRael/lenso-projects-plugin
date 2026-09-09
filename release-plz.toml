@@ -1,5 +1,6 @@
 [workspace]
-release_always = false
+# Publication is already gated by confirmed manual dispatch on main.
+release_always = true
 pr_labels = ["release"]
 changelog_update = false
 git_tag_name = "{{ package }}@{{ version }}"
