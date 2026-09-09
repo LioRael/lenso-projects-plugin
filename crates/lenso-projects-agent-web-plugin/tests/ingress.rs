@@ -123,10 +123,10 @@ impl Fixtures {
 impl tools::ToolProviderProvider for Fixtures {
     fn catalog(
         &self,
-        context: InvocationContext,
+        _context: InvocationContext,
         _: tools::CatalogRequest,
     ) -> NativeRequestFuture<tools::ToolProviderCatalog> {
-        self.inspect(&context, tools::CATALOG_OPERATION);
+        // Projects tool descriptions contain no user data or execution authority.
         Box::pin(async { Ok(Ok(tools::CatalogResponse { tools: vec![] })) })
     }
     fn execute(
@@ -224,6 +224,10 @@ fn request(credential: Option<&str>, body: &str) -> http::HandleRequest {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one native lifecycle verifies anonymous metadata and authenticated execution boundaries"
+)]
 #[tokio::test(flavor = "current_thread")]
 async fn ingress_authenticates_each_call_and_preserves_failure_boundaries() {
     tokio::task::LocalSet::new()
@@ -244,6 +248,20 @@ async fn ingress_authenticates_each_call_and_preserves_failure_boundaries() {
             )
             .await
             .unwrap();
+            let mut manifest = request(None, "");
+            manifest.method = "GET".into();
+            manifest.path = "/projects/agent/manifest".into();
+            manifest.route_id = "projects.agent.manifest".into();
+            let descriptions = app
+                .invoke::<http::EndpointHandle>("caller", http::HANDLE_OPERATION, manifest)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(descriptions.status, 200);
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(descriptions.body.as_ref()).unwrap(),
+                serde_json::json!({"tools":[]})
+            );
             let body = r#"{"name":"read","arguments_json":"{}"}"#;
             for (credential, body, status) in [
                 (None, body, 401),

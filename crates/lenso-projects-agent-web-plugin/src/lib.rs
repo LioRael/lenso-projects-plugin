@@ -29,6 +29,28 @@ struct ToolInput {
 
 #[endpoint]
 impl ProjectsAgentWebPlugin {
+    /// Public API descriptions only. Execution always authenticates independently.
+    #[get("projects.agent.manifest", "/projects/agent/manifest")]
+    async fn manifest(
+        &self,
+        context: InvocationContext,
+        _request: HandleRequest,
+    ) -> Result<HandleResponse, EndpointHandleInvocationError> {
+        match self
+            .tools
+            .catalog_with_context(context, tools::CatalogRequest {})
+            .await
+        {
+            Ok(catalog) => reply(200, &catalog),
+            Err(tools::ToolProviderCatalogInvocationError::Domain(_)) => {
+                problem(503, "catalog_unavailable")
+            }
+            Err(tools::ToolProviderCatalogInvocationError::Runtime(error)) => {
+                Err(EndpointHandleInvocationError::Runtime(error))
+            }
+        }
+    }
+
     #[get("projects.agent.catalog", "/projects/agent/tools")]
     async fn catalog(
         &self,
