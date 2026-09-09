@@ -13,6 +13,9 @@ the endpoint does not accept an actor or credential in JSON. Cookie clients rema
 subject to the Web ingress's CSRF policy. Authentication runs for every catalog and
 execution request, so revoked or expired sessions cannot reuse an earlier assertion.
 
+- `GET /projects/agent/manifest` publicly returns only static Tool descriptions and
+  schemas from the bound Projects Tools adapter, with no user or resource data. This
+  allows Agent Generation preparation before login. It grants no execution access.
 - `GET /projects/agent/tools` returns the generated Tool Provider catalog.
 - `POST /projects/agent/tools/execute` accepts only `name` and `arguments_json`.
   `arguments_json` is a JSON-encoded string matching the selected Tool schema.
