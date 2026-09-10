@@ -5,8 +5,8 @@ use lenso_kernel::{InvocationContext, NativeRequestEndpoint, NativeRequestFuture
 
 use lenso_plugin_authoring::{BoundCapabilityClient, CapabilityClient, CapabilityClientMany, CapabilityReference};
 pub const CAPABILITY_ID: &str = "lenso.projects-collaboration@1";
-pub const DESCRIPTOR_VERSION: &str = "1.0.0";
-pub const DESCRIPTOR_DIGEST: &str = "sha256:9239a52d3aa3ba540b127680504328b2ab564f28e6ed4f2109066e2dd339c8b6";
+pub const DESCRIPTOR_VERSION: &str = "1.1.0";
+pub const DESCRIPTOR_DIGEST: &str = "sha256:888aeea743b17d89703efcc9e30175f430bd27b6cc503769a4b2d9ff833b701a";
 pub const PORTABLE: bool = true;
 pub const CROSS_LANE_TRANSFER: bool = true;
 pub const PROJECTS_COLLABORATION_CAPABILITY_ID: &str = CAPABILITY_ID;
@@ -16,35 +16,37 @@ pub const PROJECTS_COLLABORATION_CONTRACT: CapabilityReference<ProjectsCollabora
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __lenso_provided_projects_collaboration { () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"operations\":[\"add_comment\",\"add_issue_relation\",\"create_project_update\",\"delete_comment\",\"list_comments\",\"list_project_updates\",\"remove_issue_relation\",\"update_comment\"],\"operation_kinds\":{},\"default_admission\":{\"queue_capacity\":0,\"max_concurrency\":1},\"operation_admissions\":{},\"event_admission\":null,\"cross_lane_transfer\":true}" }; }
+macro_rules! __lenso_provided_projects_collaboration { () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.1.0\",\"operations\":[\"add_comment\",\"add_issue_relation\",\"create_project_update\",\"delete_comment\",\"get_issue_assignee\",\"list_comments\",\"list_project_updates\",\"remove_issue_relation\",\"set_issue_assignee\",\"update_comment\"],\"operation_kinds\":{},\"default_admission\":{\"queue_capacity\":0,\"max_concurrency\":1},\"operation_admissions\":{},\"event_admission\":null,\"cross_lane_transfer\":true}" }; }
 
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __lenso_required_projects_collaboration_client {
-    () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}" };
-    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"one\"}") };
+    () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.1.0\",\"cardinality\":\"one\"}" };
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.1.0\",\"cardinality\":\"one\"}") };
 }
 
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __lenso_required_optional_projects_collaboration_client {
-    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"optional\"}") };
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.1.0\",\"cardinality\":\"optional\"}") };
 }
 
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __lenso_required_many_projects_collaboration_client {
-    () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}" };
-    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.0.0\",\"cardinality\":\"many\"}") };
+    () => { "{\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.1.0\",\"cardinality\":\"many\"}" };
+    ($requirement_id:literal) => { concat!("{\"requirement_id\":", stringify!($requirement_id), ",\"capability_id\":\"lenso.projects-collaboration@1\",\"descriptor_version\":\"1.1.0\",\"cardinality\":\"many\"}") };
 }
 
 pub const ADD_COMMENT_OPERATION: &str = "add_comment";
 pub const ADD_ISSUE_RELATION_OPERATION: &str = "add_issue_relation";
 pub const CREATE_PROJECT_UPDATE_OPERATION: &str = "create_project_update";
 pub const DELETE_COMMENT_OPERATION: &str = "delete_comment";
+pub const GET_ISSUE_ASSIGNEE_OPERATION: &str = "get_issue_assignee";
 pub const LIST_COMMENTS_OPERATION: &str = "list_comments";
 pub const LIST_PROJECT_UPDATES_OPERATION: &str = "list_project_updates";
 pub const REMOVE_ISSUE_RELATION_OPERATION: &str = "remove_issue_relation";
+pub const SET_ISSUE_ASSIGNEE_OPERATION: &str = "set_issue_assignee";
 pub const UPDATE_COMMENT_OPERATION: &str = "update_comment";
 
 pub use lenso_contract_runtime::{Timestamp, UnknownDomainError};
@@ -321,6 +323,47 @@ pub enum DeleteCommentError {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GetIssueAssigneeRequest {
+    #[serde(rename = "issue_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub issue_id: String,
+    #[serde(rename = "organization_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub organization_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GetIssueAssigneeResponse {
+    #[serde(rename = "assignee_subject")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub assignee_subject: Option<String>,
+    #[serde(rename = "issue_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub issue_id: String,
+    #[serde(rename = "organization_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub organization_id: String,
+    #[serde(rename = "revision")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub revision: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum GetIssueAssigneeError {
+    AuthorRequired,
+    CannotRelateSelf,
+    Forbidden,
+    IdempotencyConflict,
+    InvalidRequest,
+    NotFound,
+    PrivateTeam,
+    RelationConflict,
+    RevisionConflict,
+    Unauthenticated,
+    Unknown(UnknownDomainError),
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ListCommentsRequest {
     #[serde(rename = "after")]
     #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
@@ -509,6 +552,56 @@ pub enum RemoveIssueRelationError {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SetIssueAssigneeRequest {
+    #[serde(rename = "assignee_subject")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub assignee_subject: Option<String>,
+    #[serde(rename = "expected_revision")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub expected_revision: String,
+    #[serde(rename = "idempotency_key")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub idempotency_key: String,
+    #[serde(rename = "issue_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub issue_id: String,
+    #[serde(rename = "organization_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub organization_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SetIssueAssigneeResponse {
+    #[serde(rename = "assignee_subject")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub assignee_subject: Option<String>,
+    #[serde(rename = "issue_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub issue_id: String,
+    #[serde(rename = "organization_id")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub organization_id: String,
+    #[serde(rename = "revision")]
+    #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
+    pub revision: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SetIssueAssigneeError {
+    AuthorRequired,
+    CannotRelateSelf,
+    Forbidden,
+    IdempotencyConflict,
+    InvalidRequest,
+    NotFound,
+    PrivateTeam,
+    RelationConflict,
+    RevisionConflict,
+    Unauthenticated,
+    Unknown(UnknownDomainError),
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UpdateCommentRequest {
     #[serde(rename = "body")]
     #[serde(deserialize_with = "lenso_contract_runtime::serde::deserialize_required")]
@@ -666,6 +759,29 @@ impl RequestCapability for ProjectsCollaborationDeleteComment {
 }
 
 #[derive(Debug)]
+pub struct ProjectsCollaborationGetIssueAssignee;
+impl RequestCapability for ProjectsCollaborationGetIssueAssignee {
+    type Request = GetIssueAssigneeRequest;
+    type Response = GetIssueAssigneeResponse;
+    type DomainError = GetIssueAssigneeError;
+    const ID: &'static str = CAPABILITY_ID;
+    const DESCRIPTOR_VERSION: &'static str = DESCRIPTOR_VERSION;
+
+    fn invoke_native(endpoint: &dyn NativeRequestEndpoint, operation: &str, request: Self::Request, context: InvocationContext) -> NativeRequestFuture<Self> {
+        if operation != GET_ISSUE_ASSIGNEE_OPERATION {
+            return lenso_kernel::invoke_typed_or_erased_native_request::<Self>(endpoint, operation, request, context);
+        }
+        let Some(typed_endpoint) = endpoint
+            .typed_endpoint()
+            .and_then(|endpoint| endpoint.downcast_ref::<ProjectsCollaborationRequestEndpoint>())
+        else {
+            return lenso_kernel::invoke_typed_or_erased_native_request::<Self>(endpoint, operation, request, context);
+        };
+        Rc::clone(&typed_endpoint.provider).get_issue_assignee(context, request)
+    }
+}
+
+#[derive(Debug)]
 pub struct ProjectsCollaborationListComments;
 impl RequestCapability for ProjectsCollaborationListComments {
     type Request = ListCommentsRequest;
@@ -731,6 +847,29 @@ impl RequestCapability for ProjectsCollaborationRemoveIssueRelation {
             return lenso_kernel::invoke_typed_or_erased_native_request::<Self>(endpoint, operation, request, context);
         };
         Rc::clone(&typed_endpoint.provider).remove_issue_relation(context, request)
+    }
+}
+
+#[derive(Debug)]
+pub struct ProjectsCollaborationSetIssueAssignee;
+impl RequestCapability for ProjectsCollaborationSetIssueAssignee {
+    type Request = SetIssueAssigneeRequest;
+    type Response = SetIssueAssigneeResponse;
+    type DomainError = SetIssueAssigneeError;
+    const ID: &'static str = CAPABILITY_ID;
+    const DESCRIPTOR_VERSION: &'static str = DESCRIPTOR_VERSION;
+
+    fn invoke_native(endpoint: &dyn NativeRequestEndpoint, operation: &str, request: Self::Request, context: InvocationContext) -> NativeRequestFuture<Self> {
+        if operation != SET_ISSUE_ASSIGNEE_OPERATION {
+            return lenso_kernel::invoke_typed_or_erased_native_request::<Self>(endpoint, operation, request, context);
+        }
+        let Some(typed_endpoint) = endpoint
+            .typed_endpoint()
+            .and_then(|endpoint| endpoint.downcast_ref::<ProjectsCollaborationRequestEndpoint>())
+        else {
+            return lenso_kernel::invoke_typed_or_erased_native_request::<Self>(endpoint, operation, request, context);
+        };
+        Rc::clone(&typed_endpoint.provider).set_issue_assignee(context, request)
     }
 }
 
@@ -1017,6 +1156,71 @@ impl<'de> serde::Deserialize<'de> for DeleteCommentError {
     }
 }
 
+impl serde::Serialize for GetIssueAssigneeError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::AuthorRequired => serializer.serialize_str("author_required"),
+            Self::CannotRelateSelf => serializer.serialize_str("cannot_relate_self"),
+            Self::Forbidden => serializer.serialize_str("forbidden"),
+            Self::IdempotencyConflict => serializer.serialize_str("idempotency_conflict"),
+            Self::InvalidRequest => serializer.serialize_str("invalid_request"),
+            Self::NotFound => serializer.serialize_str("not_found"),
+            Self::PrivateTeam => serializer.serialize_str("private_team"),
+            Self::RelationConflict => serializer.serialize_str("relation_conflict"),
+            Self::RevisionConflict => serializer.serialize_str("revision_conflict"),
+            Self::Unauthenticated => serializer.serialize_str("unauthenticated"),
+            Self::Unknown(value) => {
+                let mut map = serializer.serialize_map(Some(1 + usize::from(value.payload.is_some()) + value.extra.len()))?;
+                map.serialize_entry("code", &value.code)?;
+                if let Some(payload) = &value.payload {
+                    map.serialize_entry("payload", payload)?;
+                }
+                for (key, extra) in &value.extra {
+                    map.serialize_entry(key, extra)?;
+                }
+                map.end()
+            },
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for GetIssueAssigneeError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::String(code) => match code.as_str() {
+                "author_required" => Ok(Self::AuthorRequired),
+                "cannot_relate_self" => Ok(Self::CannotRelateSelf),
+                "forbidden" => Ok(Self::Forbidden),
+                "idempotency_conflict" => Ok(Self::IdempotencyConflict),
+                "invalid_request" => Ok(Self::InvalidRequest),
+                "not_found" => Ok(Self::NotFound),
+                "private_team" => Ok(Self::PrivateTeam),
+                "relation_conflict" => Ok(Self::RelationConflict),
+                "revision_conflict" => Ok(Self::RevisionConflict),
+                "unauthenticated" => Ok(Self::Unauthenticated),
+                _ => Ok(Self::Unknown(UnknownDomainError { code, payload: None, extra: std::collections::BTreeMap::new() })),
+            },
+            serde_json::Value::Object(mut object) => {
+                let Some(code) = object.remove("code").and_then(|value| value.as_str().map(ToOwned::to_owned)) else {
+                    return Err(serde::de::Error::custom("Domain Error object is missing a string code"));
+                };
+                let payload = object.remove("payload");
+                let extra = object.into_iter().collect::<std::collections::BTreeMap<_, _>>();
+                Ok(Self::Unknown(UnknownDomainError { code, payload, extra }))
+            }
+            other => Err(serde::de::Error::custom(format!("Domain Error must be a string or object, got {other}"))),
+        }
+    }
+}
+
 impl serde::Serialize for ListCommentsError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1212,6 +1416,71 @@ impl<'de> serde::Deserialize<'de> for RemoveIssueRelationError {
     }
 }
 
+impl serde::Serialize for SetIssueAssigneeError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::AuthorRequired => serializer.serialize_str("author_required"),
+            Self::CannotRelateSelf => serializer.serialize_str("cannot_relate_self"),
+            Self::Forbidden => serializer.serialize_str("forbidden"),
+            Self::IdempotencyConflict => serializer.serialize_str("idempotency_conflict"),
+            Self::InvalidRequest => serializer.serialize_str("invalid_request"),
+            Self::NotFound => serializer.serialize_str("not_found"),
+            Self::PrivateTeam => serializer.serialize_str("private_team"),
+            Self::RelationConflict => serializer.serialize_str("relation_conflict"),
+            Self::RevisionConflict => serializer.serialize_str("revision_conflict"),
+            Self::Unauthenticated => serializer.serialize_str("unauthenticated"),
+            Self::Unknown(value) => {
+                let mut map = serializer.serialize_map(Some(1 + usize::from(value.payload.is_some()) + value.extra.len()))?;
+                map.serialize_entry("code", &value.code)?;
+                if let Some(payload) = &value.payload {
+                    map.serialize_entry("payload", payload)?;
+                }
+                for (key, extra) in &value.extra {
+                    map.serialize_entry(key, extra)?;
+                }
+                map.end()
+            },
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SetIssueAssigneeError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::String(code) => match code.as_str() {
+                "author_required" => Ok(Self::AuthorRequired),
+                "cannot_relate_self" => Ok(Self::CannotRelateSelf),
+                "forbidden" => Ok(Self::Forbidden),
+                "idempotency_conflict" => Ok(Self::IdempotencyConflict),
+                "invalid_request" => Ok(Self::InvalidRequest),
+                "not_found" => Ok(Self::NotFound),
+                "private_team" => Ok(Self::PrivateTeam),
+                "relation_conflict" => Ok(Self::RelationConflict),
+                "revision_conflict" => Ok(Self::RevisionConflict),
+                "unauthenticated" => Ok(Self::Unauthenticated),
+                _ => Ok(Self::Unknown(UnknownDomainError { code, payload: None, extra: std::collections::BTreeMap::new() })),
+            },
+            serde_json::Value::Object(mut object) => {
+                let Some(code) = object.remove("code").and_then(|value| value.as_str().map(ToOwned::to_owned)) else {
+                    return Err(serde::de::Error::custom("Domain Error object is missing a string code"));
+                };
+                let payload = object.remove("payload");
+                let extra = object.into_iter().collect::<std::collections::BTreeMap<_, _>>();
+                Ok(Self::Unknown(UnknownDomainError { code, payload, extra }))
+            }
+            other => Err(serde::de::Error::custom(format!("Domain Error must be a string or object, got {other}"))),
+        }
+    }
+}
+
 impl serde::Serialize for UpdateCommentError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1305,6 +1574,13 @@ pub fn decode_delete_comment_response(wire: &str) -> Result<DeleteCommentRespons
 pub fn encode_delete_comment_error(value: &DeleteCommentError) -> Result<String, serde_json::Error> { encode_portable_json(value) }
 pub fn decode_delete_comment_error(wire: &str) -> Result<DeleteCommentError, serde_json::Error> { decode_portable_json(wire) }
 
+pub fn encode_get_issue_assignee_request(value: &GetIssueAssigneeRequest) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_get_issue_assignee_request(wire: &str) -> Result<GetIssueAssigneeRequest, serde_json::Error> { decode_portable_json(wire) }
+pub fn encode_get_issue_assignee_response(value: &GetIssueAssigneeResponse) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_get_issue_assignee_response(wire: &str) -> Result<GetIssueAssigneeResponse, serde_json::Error> { decode_portable_json(wire) }
+pub fn encode_get_issue_assignee_error(value: &GetIssueAssigneeError) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_get_issue_assignee_error(wire: &str) -> Result<GetIssueAssigneeError, serde_json::Error> { decode_portable_json(wire) }
+
 pub fn encode_list_comments_request(value: &ListCommentsRequest) -> Result<String, serde_json::Error> { encode_portable_json(value) }
 pub fn decode_list_comments_request(wire: &str) -> Result<ListCommentsRequest, serde_json::Error> { decode_portable_json(wire) }
 pub fn encode_list_comments_response(value: &ListCommentsResponse) -> Result<String, serde_json::Error> { encode_portable_json(value) }
@@ -1325,6 +1601,13 @@ pub fn encode_remove_issue_relation_response(value: &RemoveIssueRelationResponse
 pub fn decode_remove_issue_relation_response(wire: &str) -> Result<RemoveIssueRelationResponse, serde_json::Error> { decode_portable_json(wire) }
 pub fn encode_remove_issue_relation_error(value: &RemoveIssueRelationError) -> Result<String, serde_json::Error> { encode_portable_json(value) }
 pub fn decode_remove_issue_relation_error(wire: &str) -> Result<RemoveIssueRelationError, serde_json::Error> { decode_portable_json(wire) }
+
+pub fn encode_set_issue_assignee_request(value: &SetIssueAssigneeRequest) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_set_issue_assignee_request(wire: &str) -> Result<SetIssueAssigneeRequest, serde_json::Error> { decode_portable_json(wire) }
+pub fn encode_set_issue_assignee_response(value: &SetIssueAssigneeResponse) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_set_issue_assignee_response(wire: &str) -> Result<SetIssueAssigneeResponse, serde_json::Error> { decode_portable_json(wire) }
+pub fn encode_set_issue_assignee_error(value: &SetIssueAssigneeError) -> Result<String, serde_json::Error> { encode_portable_json(value) }
+pub fn decode_set_issue_assignee_error(wire: &str) -> Result<SetIssueAssigneeError, serde_json::Error> { decode_portable_json(wire) }
 
 pub fn encode_update_comment_request(value: &UpdateCommentRequest) -> Result<String, serde_json::Error> { encode_portable_json(value) }
 pub fn decode_update_comment_request(wire: &str) -> Result<UpdateCommentRequest, serde_json::Error> { decode_portable_json(wire) }
@@ -1450,6 +1733,35 @@ impl __LensoIntoProjectsCollaborationDeleteCommentResult for Result<DeleteCommen
 }
 
 #[doc(hidden)]
+pub trait __LensoIntoProjectsCollaborationGetIssueAssigneeResult {
+    fn __lenso_into_result(self) -> Result<Result<GetIssueAssigneeResponse, GetIssueAssigneeError>, RuntimeFailure>;
+}
+impl __LensoIntoProjectsCollaborationGetIssueAssigneeResult for Result<GetIssueAssigneeResponse, GetIssueAssigneeError> {
+    fn __lenso_into_result(self) -> Result<Result<GetIssueAssigneeResponse, GetIssueAssigneeError>, RuntimeFailure> { Ok(self) }
+}
+impl __LensoIntoProjectsCollaborationGetIssueAssigneeResult for Result<Result<GetIssueAssigneeResponse, GetIssueAssigneeError>, RuntimeFailure> {
+    fn __lenso_into_result(self) -> Result<Result<GetIssueAssigneeResponse, GetIssueAssigneeError>, RuntimeFailure> { self }
+}
+impl __LensoIntoProjectsCollaborationGetIssueAssigneeResult for Result<GetIssueAssigneeResponse, lenso_plugin_authoring::PluginError<GetIssueAssigneeError, RuntimeFailure>> {
+    fn __lenso_into_result(self) -> Result<Result<GetIssueAssigneeResponse, GetIssueAssigneeError>, RuntimeFailure> {
+        match self {
+            Ok(value) => Ok(Ok(value)),
+            Err(lenso_plugin_authoring::PluginError::Domain(error)) => Ok(Err(error)),
+            Err(lenso_plugin_authoring::PluginError::Runtime(error)) => Err(error),
+        }
+    }
+}
+impl __LensoIntoProjectsCollaborationGetIssueAssigneeResult for Result<GetIssueAssigneeResponse, ProjectsCollaborationGetIssueAssigneeInvocationError> {
+    fn __lenso_into_result(self) -> Result<Result<GetIssueAssigneeResponse, GetIssueAssigneeError>, RuntimeFailure> {
+        match self {
+            Ok(value) => Ok(Ok(value)),
+            Err(ProjectsCollaborationGetIssueAssigneeInvocationError::Domain(error)) => Ok(Err(error)),
+            Err(ProjectsCollaborationGetIssueAssigneeInvocationError::Runtime(error)) => Err(error),
+        }
+    }
+}
+
+#[doc(hidden)]
 pub trait __LensoIntoProjectsCollaborationListCommentsResult {
     fn __lenso_into_result(self) -> Result<Result<ListCommentsResponse, ListCommentsError>, RuntimeFailure>;
 }
@@ -1537,6 +1849,35 @@ impl __LensoIntoProjectsCollaborationRemoveIssueRelationResult for Result<Remove
 }
 
 #[doc(hidden)]
+pub trait __LensoIntoProjectsCollaborationSetIssueAssigneeResult {
+    fn __lenso_into_result(self) -> Result<Result<SetIssueAssigneeResponse, SetIssueAssigneeError>, RuntimeFailure>;
+}
+impl __LensoIntoProjectsCollaborationSetIssueAssigneeResult for Result<SetIssueAssigneeResponse, SetIssueAssigneeError> {
+    fn __lenso_into_result(self) -> Result<Result<SetIssueAssigneeResponse, SetIssueAssigneeError>, RuntimeFailure> { Ok(self) }
+}
+impl __LensoIntoProjectsCollaborationSetIssueAssigneeResult for Result<Result<SetIssueAssigneeResponse, SetIssueAssigneeError>, RuntimeFailure> {
+    fn __lenso_into_result(self) -> Result<Result<SetIssueAssigneeResponse, SetIssueAssigneeError>, RuntimeFailure> { self }
+}
+impl __LensoIntoProjectsCollaborationSetIssueAssigneeResult for Result<SetIssueAssigneeResponse, lenso_plugin_authoring::PluginError<SetIssueAssigneeError, RuntimeFailure>> {
+    fn __lenso_into_result(self) -> Result<Result<SetIssueAssigneeResponse, SetIssueAssigneeError>, RuntimeFailure> {
+        match self {
+            Ok(value) => Ok(Ok(value)),
+            Err(lenso_plugin_authoring::PluginError::Domain(error)) => Ok(Err(error)),
+            Err(lenso_plugin_authoring::PluginError::Runtime(error)) => Err(error),
+        }
+    }
+}
+impl __LensoIntoProjectsCollaborationSetIssueAssigneeResult for Result<SetIssueAssigneeResponse, ProjectsCollaborationSetIssueAssigneeInvocationError> {
+    fn __lenso_into_result(self) -> Result<Result<SetIssueAssigneeResponse, SetIssueAssigneeError>, RuntimeFailure> {
+        match self {
+            Ok(value) => Ok(Ok(value)),
+            Err(ProjectsCollaborationSetIssueAssigneeInvocationError::Domain(error)) => Ok(Err(error)),
+            Err(ProjectsCollaborationSetIssueAssigneeInvocationError::Runtime(error)) => Err(error),
+        }
+    }
+}
+
+#[doc(hidden)]
 pub trait __LensoIntoProjectsCollaborationUpdateCommentResult {
     fn __lenso_into_result(self) -> Result<Result<UpdateCommentResponse, UpdateCommentError>, RuntimeFailure>;
 }
@@ -1570,9 +1911,11 @@ pub trait ProjectsCollaborationProvider: fmt::Debug + 'static {
     fn add_issue_relation(&self, context: InvocationContext, request: AddIssueRelationRequest) -> NativeRequestFuture<ProjectsCollaborationAddIssueRelation>;
     fn create_project_update(&self, context: InvocationContext, request: CreateProjectUpdateRequest) -> NativeRequestFuture<ProjectsCollaborationCreateProjectUpdate>;
     fn delete_comment(&self, context: InvocationContext, request: DeleteCommentRequest) -> NativeRequestFuture<ProjectsCollaborationDeleteComment>;
+    fn get_issue_assignee(&self, context: InvocationContext, request: GetIssueAssigneeRequest) -> NativeRequestFuture<ProjectsCollaborationGetIssueAssignee>;
     fn list_comments(&self, context: InvocationContext, request: ListCommentsRequest) -> NativeRequestFuture<ProjectsCollaborationListComments>;
     fn list_project_updates(&self, context: InvocationContext, request: ListProjectUpdatesRequest) -> NativeRequestFuture<ProjectsCollaborationListProjectUpdates>;
     fn remove_issue_relation(&self, context: InvocationContext, request: RemoveIssueRelationRequest) -> NativeRequestFuture<ProjectsCollaborationRemoveIssueRelation>;
+    fn set_issue_assignee(&self, context: InvocationContext, request: SetIssueAssigneeRequest) -> NativeRequestFuture<ProjectsCollaborationSetIssueAssignee>;
     fn update_comment(&self, context: InvocationContext, request: UpdateCommentRequest) -> NativeRequestFuture<ProjectsCollaborationUpdateComment>;
 }
 
@@ -1610,6 +1953,13 @@ macro_rules! __lenso_native_lower_projects_collaboration {
                 $crate::__LensoIntoProjectsCollaborationDeleteCommentResult::__lenso_into_result(result)
             })
         }
+        fn get_issue_assignee(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::GetIssueAssigneeRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationGetIssueAssignee> {
+            let plugin = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let result = <$plugin>::get_issue_assignee(&plugin, context, request).await;
+                $crate::__LensoIntoProjectsCollaborationGetIssueAssigneeResult::__lenso_into_result(result)
+            })
+        }
         fn list_comments(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::ListCommentsRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationListComments> {
             let plugin = self.clone();
             ::std::boxed::Box::pin(async move {
@@ -1629,6 +1979,13 @@ macro_rules! __lenso_native_lower_projects_collaboration {
             ::std::boxed::Box::pin(async move {
                 let result = <$plugin>::remove_issue_relation(&plugin, context, request).await;
                 $crate::__LensoIntoProjectsCollaborationRemoveIssueRelationResult::__lenso_into_result(result)
+            })
+        }
+        fn set_issue_assignee(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::SetIssueAssigneeRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationSetIssueAssignee> {
+            let plugin = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let result = <$plugin>::set_issue_assignee(&plugin, context, request).await;
+                $crate::__LensoIntoProjectsCollaborationSetIssueAssigneeResult::__lenso_into_result(result)
             })
         }
         fn update_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::UpdateCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationUpdateComment> {
@@ -1680,6 +2037,14 @@ macro_rules! __lenso_native_lower_object_projects_collaboration {
                 $crate::__LensoIntoProjectsCollaborationDeleteCommentResult::__lenso_into_result(result)
             })
         }
+        fn get_issue_assignee(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::GetIssueAssigneeRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationGetIssueAssignee> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::get_issue_assignee(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationGetIssueAssigneeResult::__lenso_into_result(result)
+            })
+        }
         fn list_comments(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::ListCommentsRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationListComments> {
             let object = self.clone();
             ::std::boxed::Box::pin(async move {
@@ -1702,6 +2067,14 @@ macro_rules! __lenso_native_lower_object_projects_collaboration {
                 let plugin = object.get()?;
                 let result = <$plugin>::remove_issue_relation(plugin.as_ref(), context, request).await;
                 $crate::__LensoIntoProjectsCollaborationRemoveIssueRelationResult::__lenso_into_result(result)
+            })
+        }
+        fn set_issue_assignee(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::SetIssueAssigneeRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationSetIssueAssignee> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                let result = <$plugin>::set_issue_assignee(plugin.as_ref(), context, request).await;
+                $crate::__LensoIntoProjectsCollaborationSetIssueAssigneeResult::__lenso_into_result(result)
             })
         }
         fn update_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::UpdateCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationUpdateComment> {
@@ -1750,6 +2123,13 @@ macro_rules! __lenso_native_lower_trait_object_projects_collaboration {
                 <$plugin as $crate::ProjectsCollaborationProvider>::delete_comment(plugin.as_ref(), context, request).await
             })
         }
+        fn get_issue_assignee(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::GetIssueAssigneeRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationGetIssueAssignee> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::get_issue_assignee(plugin.as_ref(), context, request).await
+            })
+        }
         fn list_comments(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::ListCommentsRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationListComments> {
             let object = self.clone();
             ::std::boxed::Box::pin(async move {
@@ -1769,6 +2149,13 @@ macro_rules! __lenso_native_lower_trait_object_projects_collaboration {
             ::std::boxed::Box::pin(async move {
                 let plugin = object.get()?;
                 <$plugin as $crate::ProjectsCollaborationProvider>::remove_issue_relation(plugin.as_ref(), context, request).await
+            })
+        }
+        fn set_issue_assignee(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::SetIssueAssigneeRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationSetIssueAssignee> {
+            let object = self.clone();
+            ::std::boxed::Box::pin(async move {
+                let plugin = object.get()?;
+                <$plugin as $crate::ProjectsCollaborationProvider>::set_issue_assignee(plugin.as_ref(), context, request).await
             })
         }
         fn update_comment(&self, context: __LensoNativeSupportProjectsCollaboration::InvocationContext, request: $crate::UpdateCommentRequest) -> __LensoNativeSupportProjectsCollaboration::NativeRequestFuture<$crate::ProjectsCollaborationUpdateComment> {
@@ -1803,9 +2190,11 @@ impl<P: ProjectsCollaborationProvider> NativeRequestEndpoint for ProjectsCollabo
         ADD_ISSUE_RELATION_OPERATION,
         CREATE_PROJECT_UPDATE_OPERATION,
         DELETE_COMMENT_OPERATION,
+        GET_ISSUE_ASSIGNEE_OPERATION,
         LIST_COMMENTS_OPERATION,
         LIST_PROJECT_UPDATES_OPERATION,
         REMOVE_ISSUE_RELATION_OPERATION,
+        SET_ISSUE_ASSIGNEE_OPERATION,
         UPDATE_COMMENT_OPERATION,
     ] }
     fn typed_endpoint(&self) -> Option<&dyn std::any::Any> { Some(&self.request_endpoint) }
@@ -1863,6 +2252,19 @@ impl<P: ProjectsCollaborationProvider> NativeRequestEndpoint for ProjectsCollabo
                     })
                 })
             },
+            GET_ISSUE_ASSIGNEE_OPERATION => {
+                let Ok(request) = request.downcast::<GetIssueAssigneeRequest>() else {
+                    return Box::pin(futures::future::ready(Err(RuntimeFailure::ProtocolViolation { capability: CAPABILITY_ID })));
+                };
+                let invocation = Rc::clone(&self.provider).get_issue_assignee(context, *request);
+                Box::pin(async move {
+                    invocation.await.map(|result| {
+                        result
+                            .map(|value| Box::new(value) as Box<dyn std::any::Any>)
+                            .map_err(|error| Box::new(error) as Box<dyn std::any::Any>)
+                    })
+                })
+            },
             LIST_COMMENTS_OPERATION => {
                 let Ok(request) = request.downcast::<ListCommentsRequest>() else {
                     return Box::pin(futures::future::ready(Err(RuntimeFailure::ProtocolViolation { capability: CAPABILITY_ID })));
@@ -1894,6 +2296,19 @@ impl<P: ProjectsCollaborationProvider> NativeRequestEndpoint for ProjectsCollabo
                     return Box::pin(futures::future::ready(Err(RuntimeFailure::ProtocolViolation { capability: CAPABILITY_ID })));
                 };
                 let invocation = Rc::clone(&self.provider).remove_issue_relation(context, *request);
+                Box::pin(async move {
+                    invocation.await.map(|result| {
+                        result
+                            .map(|value| Box::new(value) as Box<dyn std::any::Any>)
+                            .map_err(|error| Box::new(error) as Box<dyn std::any::Any>)
+                    })
+                })
+            },
+            SET_ISSUE_ASSIGNEE_OPERATION => {
+                let Ok(request) = request.downcast::<SetIssueAssigneeRequest>() else {
+                    return Box::pin(futures::future::ready(Err(RuntimeFailure::ProtocolViolation { capability: CAPABILITY_ID })));
+                };
+                let invocation = Rc::clone(&self.provider).set_issue_assignee(context, *request);
                 Box::pin(async move {
                     invocation.await.map(|result| {
                         result
@@ -1956,9 +2371,11 @@ pub struct ProjectsCollaborationClient {
     add_issue_relation: NativeRequestHandle<ProjectsCollaborationAddIssueRelation>,
     create_project_update: NativeRequestHandle<ProjectsCollaborationCreateProjectUpdate>,
     delete_comment: NativeRequestHandle<ProjectsCollaborationDeleteComment>,
+    get_issue_assignee: NativeRequestHandle<ProjectsCollaborationGetIssueAssignee>,
     list_comments: NativeRequestHandle<ProjectsCollaborationListComments>,
     list_project_updates: NativeRequestHandle<ProjectsCollaborationListProjectUpdates>,
     remove_issue_relation: NativeRequestHandle<ProjectsCollaborationRemoveIssueRelation>,
+    set_issue_assignee: NativeRequestHandle<ProjectsCollaborationSetIssueAssignee>,
     update_comment: NativeRequestHandle<ProjectsCollaborationUpdateComment>,
 }
 impl ProjectsCollaborationClient {
@@ -2021,6 +2438,18 @@ impl ProjectsCollaborationClient {
             .map_err(ProjectsCollaborationDeleteCommentInvocationError::Domain)
     }
 
+    pub async fn get_issue_assignee(&self, request: GetIssueAssigneeRequest) -> Result<GetIssueAssigneeResponse, ProjectsCollaborationGetIssueAssigneeInvocationError> {
+        self.get_issue_assignee.invoke(GET_ISSUE_ASSIGNEE_OPERATION, request).await
+            .map_err(ProjectsCollaborationGetIssueAssigneeInvocationError::Runtime)?
+            .map_err(ProjectsCollaborationGetIssueAssigneeInvocationError::Domain)
+    }
+
+    pub async fn get_issue_assignee_with_context(&self, context: InvocationContext, request: GetIssueAssigneeRequest) -> Result<GetIssueAssigneeResponse, ProjectsCollaborationGetIssueAssigneeInvocationError> {
+        self.get_issue_assignee.invoke_with_context(GET_ISSUE_ASSIGNEE_OPERATION, context, request).await
+            .map_err(ProjectsCollaborationGetIssueAssigneeInvocationError::Runtime)?
+            .map_err(ProjectsCollaborationGetIssueAssigneeInvocationError::Domain)
+    }
+
     pub async fn list_comments(&self, request: ListCommentsRequest) -> Result<ListCommentsResponse, ProjectsCollaborationListCommentsInvocationError> {
         self.list_comments.invoke(LIST_COMMENTS_OPERATION, request).await
             .map_err(ProjectsCollaborationListCommentsInvocationError::Runtime)?
@@ -2057,6 +2486,18 @@ impl ProjectsCollaborationClient {
             .map_err(ProjectsCollaborationRemoveIssueRelationInvocationError::Domain)
     }
 
+    pub async fn set_issue_assignee(&self, request: SetIssueAssigneeRequest) -> Result<SetIssueAssigneeResponse, ProjectsCollaborationSetIssueAssigneeInvocationError> {
+        self.set_issue_assignee.invoke(SET_ISSUE_ASSIGNEE_OPERATION, request).await
+            .map_err(ProjectsCollaborationSetIssueAssigneeInvocationError::Runtime)?
+            .map_err(ProjectsCollaborationSetIssueAssigneeInvocationError::Domain)
+    }
+
+    pub async fn set_issue_assignee_with_context(&self, context: InvocationContext, request: SetIssueAssigneeRequest) -> Result<SetIssueAssigneeResponse, ProjectsCollaborationSetIssueAssigneeInvocationError> {
+        self.set_issue_assignee.invoke_with_context(SET_ISSUE_ASSIGNEE_OPERATION, context, request).await
+            .map_err(ProjectsCollaborationSetIssueAssigneeInvocationError::Runtime)?
+            .map_err(ProjectsCollaborationSetIssueAssigneeInvocationError::Domain)
+    }
+
     pub async fn update_comment(&self, request: UpdateCommentRequest) -> Result<UpdateCommentResponse, ProjectsCollaborationUpdateCommentInvocationError> {
         self.update_comment.invoke(UPDATE_COMMENT_OPERATION, request).await
             .map_err(ProjectsCollaborationUpdateCommentInvocationError::Runtime)?
@@ -2083,9 +2524,11 @@ impl CapabilityClient for ProjectsCollaborationClient {
             add_issue_relation: dependencies.one::<ProjectsCollaborationAddIssueRelation>()?,
             create_project_update: dependencies.one::<ProjectsCollaborationCreateProjectUpdate>()?,
             delete_comment: dependencies.one::<ProjectsCollaborationDeleteComment>()?,
+            get_issue_assignee: dependencies.one::<ProjectsCollaborationGetIssueAssignee>()?,
             list_comments: dependencies.one::<ProjectsCollaborationListComments>()?,
             list_project_updates: dependencies.one::<ProjectsCollaborationListProjectUpdates>()?,
             remove_issue_relation: dependencies.one::<ProjectsCollaborationRemoveIssueRelation>()?,
+            set_issue_assignee: dependencies.one::<ProjectsCollaborationSetIssueAssignee>()?,
             update_comment: dependencies.one::<ProjectsCollaborationUpdateComment>()?,
         })
     }
@@ -2121,9 +2564,11 @@ impl CapabilityClientMany for ProjectsCollaborationClient {
                     add_issue_relation: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationAddIssueRelation>()?,
                     create_project_update: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationCreateProjectUpdate>()?,
                     delete_comment: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationDeleteComment>()?,
+                    get_issue_assignee: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationGetIssueAssignee>()?,
                     list_comments: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationListComments>()?,
                     list_project_updates: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationListProjectUpdates>()?,
                     remove_issue_relation: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationRemoveIssueRelation>()?,
+                    set_issue_assignee: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationSetIssueAssignee>()?,
                     update_comment: binding.handle().ok_or(RuntimeFailure::Unavailable { capability: CAPABILITY_ID })?.typed::<ProjectsCollaborationUpdateComment>()?,
                     },
                 ))
@@ -2161,6 +2606,11 @@ pub enum ProjectsCollaborationDeleteCommentInvocationError {
     Runtime(RuntimeFailure),
 }
 #[derive(Clone, Debug, PartialEq)]
+pub enum ProjectsCollaborationGetIssueAssigneeInvocationError {
+    Domain(GetIssueAssigneeError),
+    Runtime(RuntimeFailure),
+}
+#[derive(Clone, Debug, PartialEq)]
 pub enum ProjectsCollaborationListCommentsInvocationError {
     Domain(ListCommentsError),
     Runtime(RuntimeFailure),
@@ -2173,6 +2623,11 @@ pub enum ProjectsCollaborationListProjectUpdatesInvocationError {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProjectsCollaborationRemoveIssueRelationInvocationError {
     Domain(RemoveIssueRelationError),
+    Runtime(RuntimeFailure),
+}
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProjectsCollaborationSetIssueAssigneeInvocationError {
+    Domain(SetIssueAssigneeError),
     Runtime(RuntimeFailure),
 }
 #[derive(Clone, Debug, PartialEq)]

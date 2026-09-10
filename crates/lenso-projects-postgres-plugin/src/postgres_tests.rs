@@ -955,6 +955,56 @@ async fn concurrent_idempotency_identifier_history_activity_and_restart() {
     .unwrap();
     assert_eq!(after_restart.identifier, "OPS-1");
 
+    let read_assignment = collaboration::GetIssueAssigneeRequest {
+        organization_id: "org_acme".into(),
+        issue_id: "issue_first".into(),
+    };
+    let before = storage::get_issue_assignee(&restarted, "usr_admin", &read_assignment)
+        .await
+        .unwrap();
+    assert_eq!(before.assignee_subject, None);
+    let assignment = collaboration::SetIssueAssigneeRequest {
+        organization_id: "org_acme".into(),
+        issue_id: "issue_first".into(),
+        assignee_subject: Some("usr_admin".into()),
+        expected_revision: before.revision,
+        idempotency_key: "assign-first".into(),
+    };
+    let saved = storage::set_issue_assignee(&restarted, "projects-api", "usr_admin", &assignment)
+        .await
+        .unwrap();
+    assert_eq!(saved.assignee_subject.as_deref(), Some("usr_admin"));
+    assert_eq!(
+        saved,
+        storage::set_issue_assignee(&restarted, "projects-api", "usr_admin", &assignment)
+            .await
+            .unwrap()
+    );
+    let mut stale = assignment.clone();
+    stale.idempotency_key = "stale-assignment".into();
+    assert!(matches!(
+        storage::set_issue_assignee(&restarted, "projects-api", "usr_admin", &stale).await,
+        Err(StorageError::Domain(DomainFailure::RevisionConflict))
+    ));
+    let mut clear = assignment;
+    clear.expected_revision = saved.revision;
+    clear.idempotency_key = "clear-assignment".into();
+    clear.assignee_subject = None;
+    assert_eq!(
+        storage::set_issue_assignee(&restarted, "projects-api", "usr_admin", &clear)
+            .await
+            .unwrap()
+            .assignee_subject,
+        None
+    );
+    let wrong_org = collaboration::GetIssueAssigneeRequest {
+        organization_id: "org_other".into(),
+        ..read_assignment
+    };
+    assert!(matches!(
+        storage::get_issue_assignee(&restarted, "usr_admin", &wrong_org).await,
+        Err(StorageError::Domain(DomainFailure::NotFound))
+    ));
     cleanup(&database_url, &schema_name, restarted).await;
 }
 

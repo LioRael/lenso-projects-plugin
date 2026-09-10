@@ -4138,7 +4138,8 @@ pub(crate) async fn collect_export(
             .map_err(|error| runtime("decode activity export", error))?;
         activity_values.push(json!({"activity_id":row.try_get::<i64,_>("activity_id").map_err(|error|runtime("decode activity export",error))?.to_string(),"project_id":row.try_get::<Option<String>,_>("project_id").map_err(|error|runtime("decode activity export",error))?,"issue_id":row.try_get::<Option<String>,_>("issue_id").map_err(|error|runtime("decode activity export",error))?,"operation":row.try_get::<String,_>("operation").map_err(|error|runtime("decode activity export",error))?,"entity_kind":row.try_get::<String,_>("entity_kind").map_err(|error|runtime("decode activity export",error))?,"entity_id":row.try_get::<String,_>("entity_id").map_err(|error|runtime("decode activity export",error))?,"revision":row.try_get::<Option<i64>,_>("revision").map_err(|error|runtime("decode activity export",error))?.map(|value|value.to_string()),"occurred_at":format_time(occurred_at)?}));
     }
-    let payload=serde_json::to_string(&json!({"organization_id":request.scope_id,"subject":request.subject,"comments":comment_values,"project_updates":update_values,"activity":activity_values})).map_err(|error|runtime("serialize Projects export",error))?;
+    let assignments: Vec<String> = sqlx::query_scalar("SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 ORDER BY issue_id").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|e|runtime("export assignments",e))?;
+    let payload=serde_json::to_string(&json!({"organization_id":request.scope_id,"subject":request.subject,"comments":comment_values,"project_updates":update_values,"activity":activity_values,"assigned_issue_ids":assignments})).map_err(|error|runtime("serialize Projects export",error))?;
     Ok(lenso_capability_data_export_source::CollectExportResponse {
         items: vec![
             lenso_capability_data_export_source::CollectExportResponseItemsItem {
@@ -4196,6 +4197,7 @@ pub(crate) async fn apply_retention(
         sqlx::query("UPDATE project_updates SET author_subject=$3 WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize project updates",error))?;
     }
     sqlx::query("UPDATE project_activity SET actor_subject=$3 WHERE organization_id=$1 AND actor_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize activity",error))?;
+    sqlx::query("UPDATE issues SET assignee_subject=NULL,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND assignee_subject=$2").bind(&request.scope_id).bind(&request.subject).execute(&mut *tx).await.map_err(|e|runtime("clear retained assignee",e))?;
     let receipt = format!("projects-retention:{}", request.action_id);
     sqlx::query("INSERT INTO project_retention_receipts(action_id,organization_id,subject,mode,receipt) VALUES($1,$2,$3,$4,$5)").bind(&request.action_id).bind(&request.scope_id).bind(&request.subject).bind(mode).bind(&receipt).execute(&mut *tx).await.map_err(|error|runtime("store retention receipt",error))?;
     tx.commit()
@@ -4261,4 +4263,123 @@ pub(crate) async fn list_issue_workflow_states(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(projects::ListIssueWorkflowStatesResponse { items, next_cursor })
+}
+
+async fn require_issue_visibility(
+    postgres: &OwnedPostgres,
+    org: &str,
+    issue: &str,
+    actor: &str,
+) -> Result<(), StorageError> {
+    match issue_visibility(postgres.pool(), org, issue, actor).await? {
+        Some(true) => Ok(()),
+        Some(false) => Err(DomainFailure::PrivateTeam.into()),
+        None => Err(DomainFailure::NotFound.into()),
+    }
+}
+pub(crate) async fn get_issue_assignee(
+    postgres: &OwnedPostgres,
+    actor: &str,
+    request: &collaboration::GetIssueAssigneeRequest,
+) -> Result<collaboration::GetIssueAssigneeResponse, StorageError> {
+    require_issue_visibility(postgres, &request.organization_id, &request.issue_id, actor).await?;
+    let row = sqlx::query(
+        "SELECT assignee_subject,revision FROM issues WHERE organization_id=$1 AND issue_id=$2",
+    )
+    .bind(&request.organization_id)
+    .bind(&request.issue_id)
+    .fetch_one(postgres.pool())
+    .await
+    .map_err(|e| runtime("get issue assignee", e))?;
+    Ok(collaboration::GetIssueAssigneeResponse {
+        organization_id: request.organization_id.clone(),
+        issue_id: request.issue_id.clone(),
+        assignee_subject: row
+            .try_get("assignee_subject")
+            .map_err(|e| runtime("read assignee", e))?,
+        revision: row
+            .try_get::<i64, _>("revision")
+            .map_err(|e| runtime("read revision", e))?
+            .to_string(),
+    })
+}
+pub(crate) async fn set_issue_assignee(
+    postgres: &OwnedPostgres,
+    caller: &str,
+    actor: &str,
+    request: &collaboration::SetIssueAssigneeRequest,
+) -> Result<collaboration::SetIssueAssigneeResponse, StorageError> {
+    require_issue_visibility(postgres, &request.organization_id, &request.issue_id, actor).await?;
+    if let Some(subject) = &request.assignee_subject {
+        require_issue_visibility(
+            postgres,
+            &request.organization_id,
+            &request.issue_id,
+            subject,
+        )
+        .await?;
+    }
+    let mut tx = postgres
+        .pool()
+        .begin()
+        .await
+        .map_err(|e| runtime("begin assignment", e))?;
+    match reserve_command(
+        &mut tx,
+        caller,
+        actor,
+        collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+        &request.idempotency_key,
+        request,
+    )
+    .await?
+    {
+        CommandStart::Replay(value) => {
+            let result = replay(value)?;
+            tx.commit()
+                .await
+                .map_err(|e| runtime("commit assignment replay", e))?;
+            return Ok(result);
+        }
+        CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
+        CommandStart::New => {}
+    }
+    let row=sqlx::query("UPDATE issues SET assignee_subject=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision,project_id").bind(&request.organization_id).bind(&request.issue_id).bind(parse_revision(&request.expected_revision)?).bind(&request.assignee_subject).fetch_optional(&mut *tx).await.map_err(|e|runtime("set issue assignee",e))?.ok_or(DomainFailure::RevisionConflict)?;
+    let revision: i64 = row
+        .try_get("revision")
+        .map_err(|e| runtime("decode assignment revision", e))?;
+    let project: String = row
+        .try_get("project_id")
+        .map_err(|e| runtime("decode assignment project", e))?;
+    append_activity(
+        &mut tx,
+        &request.organization_id,
+        Some(&project),
+        Some(&request.issue_id),
+        actor,
+        collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+        "issue",
+        &request.issue_id,
+        Some(revision),
+    )
+    .await?;
+    let response = collaboration::SetIssueAssigneeResponse {
+        organization_id: request.organization_id.clone(),
+        issue_id: request.issue_id.clone(),
+        assignee_subject: request.assignee_subject.clone(),
+        revision: revision.to_string(),
+    };
+    complete_command(
+        &mut tx,
+        caller,
+        actor,
+        collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+        &request.idempotency_key,
+        &response,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| runtime("commit assignment", e))?;
+    Ok(response)
 }

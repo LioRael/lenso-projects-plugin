@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "organization_id",
+    "issue_id",
+    "assignee_subject",
+    "expected_revision",
+    "idempotency_key"
+  ],
+  "properties": {
+    "organization_id": {
+      "type": "string"
+    },
+    "issue_id": {
+      "type": "string"
+    },
+    "assignee_subject": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "expected_revision": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    }
+  }
+}
