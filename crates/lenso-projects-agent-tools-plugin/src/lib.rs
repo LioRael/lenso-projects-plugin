@@ -148,6 +148,26 @@ impl ProjectsAgentToolsPlugin {
                     collaboration::ProjectsCollaborationListCommentsInvocationError::Runtime
                 )
             }
+            "projects_get_issue_assignee" => {
+                let arguments = decode::<collaboration::GetIssueAssigneeRequest>(&request)?;
+                invoke!(
+                    self.collaboration
+                        .get_issue_assignee_with_context(context, arguments),
+                    "projects_get_issue_assignee",
+                    collaboration::ProjectsCollaborationGetIssueAssigneeInvocationError::Domain,
+                    collaboration::ProjectsCollaborationGetIssueAssigneeInvocationError::Runtime
+                )
+            }
+            "projects_set_issue_assignee" => {
+                let arguments = decode::<collaboration::SetIssueAssigneeRequest>(&request)?;
+                invoke!(
+                    self.collaboration
+                        .set_issue_assignee_with_context(context, arguments),
+                    "projects_set_issue_assignee",
+                    collaboration::ProjectsCollaborationSetIssueAssigneeInvocationError::Domain,
+                    collaboration::ProjectsCollaborationSetIssueAssigneeInvocationError::Runtime
+                )
+            }
             ADD_COMMENT_TOOL => {
                 let arguments = decode::<AddCommentRequest>(&request)?;
                 invoke!(
@@ -165,6 +185,22 @@ impl ProjectsAgentToolsPlugin {
 
 fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
+        tool(
+            "projects_get_issue_assignee",
+            "Read the assignee of a visible Issue. Assignment requires an active organization member who can access the Issue; use the current revision and a stable idempotency key for writes.",
+            include_str!(
+                "../../lenso-capability-projects-collaboration/schemas/get-issue-assignee-request.schema.json"
+            ),
+            ToolExecutionClass::ParallelSafe,
+        ),
+        tool(
+            "projects_set_issue_assignee",
+            "Set the assignee of a visible Issue. Assignment requires an active organization member who can access the Issue; use the current revision and a stable idempotency key for writes.",
+            include_str!(
+                "../../lenso-capability-projects-collaboration/schemas/set-issue-assignee-request.schema.json"
+            ),
+            ToolExecutionClass::Exclusive,
+        ),
         tool(
             LIST_PROJECTS_TOOL,
             "List Projects visible to the current actor with bounded cursor pagination.",
@@ -375,6 +411,8 @@ macro_rules! impl_collaboration_domain_error {
 }
 
 impl_collaboration_domain_error!(
+    collaboration::GetIssueAssigneeError,
+    collaboration::SetIssueAssigneeError,
     collaboration::AddCommentError,
     collaboration::ListCommentsError,
 );
@@ -412,22 +450,22 @@ mod tests {
     }
 
     #[test]
-    fn catalog_has_six_parallel_reads_and_four_exclusive_mutations() {
+    fn catalog_has_seven_parallel_reads_and_five_exclusive_mutations() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 12);
         assert_eq!(
             tools
                 .iter()
                 .filter(|tool| tool.execution == ToolExecutionClass::ParallelSafe)
                 .count(),
-            6
+            7
         );
         assert_eq!(
             tools
                 .iter()
                 .filter(|tool| tool.execution == ToolExecutionClass::Exclusive)
                 .count(),
-            4
+            5
         );
         assert!(tools.iter().all(|tool| {
             let schema: serde_json::Value =

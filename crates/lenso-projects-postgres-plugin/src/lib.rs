@@ -392,6 +392,95 @@ macro_rules! auth_admin {
 }
 
 impl ProjectsPlugin {
+    async fn get_issue_assignee(
+        &self,
+        context: Ctx,
+        request: collaboration::GetIssueAssigneeRequest,
+    ) -> PluginResult<collaboration::GetIssueAssigneeResponse, collaboration::GetIssueAssigneeError>
+    {
+        let auth = auth_collaboration!(
+            self.authorize(
+                &context,
+                &self.config.project_callers,
+                collaboration::CAPABILITY_ID,
+                collaboration::GET_ISSUE_ASSIGNEE_OPERATION,
+                &request.organization_id,
+                "projects.read"
+            )
+            .await,
+            GetIssueAssigneeError
+        );
+        if !valid_id(&request.issue_id) {
+            return Err(PluginError::domain(
+                collaboration::GetIssueAssigneeError::InvalidRequest,
+            ));
+        }
+        let prepared = self.prepared().map_err(PluginError::runtime)?;
+        map_storage(
+            storage::get_issue_assignee(&prepared.postgres, &auth.actor, &request).await,
+            |failure| collaboration_error!(failure, GetIssueAssigneeError),
+        )
+    }
+    async fn set_issue_assignee(
+        &self,
+        context: Ctx,
+        request: collaboration::SetIssueAssigneeRequest,
+    ) -> PluginResult<collaboration::SetIssueAssigneeResponse, collaboration::SetIssueAssigneeError>
+    {
+        let auth = auth_collaboration!(
+            self.authorize(
+                &context,
+                &self.config.project_callers,
+                collaboration::CAPABILITY_ID,
+                collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+                &request.organization_id,
+                "projects.write"
+            )
+            .await,
+            SetIssueAssigneeError
+        );
+        if !valid_idempotent_revision(
+            &request.idempotency_key,
+            &request.issue_id,
+            &request.expected_revision,
+        ) || request
+            .assignee_subject
+            .as_ref()
+            .is_some_and(|v| !valid_id(v))
+        {
+            return Err(PluginError::domain(
+                collaboration::SetIssueAssigneeError::InvalidRequest,
+            ));
+        }
+        if let Some(subject) = &request.assignee_subject {
+            let member = self
+                .membership
+                .check_membership_with_context(
+                    context.clone(),
+                    CheckMembershipRequest {
+                        organization_id: request.organization_id.clone(),
+                        subject: subject.clone(),
+                    },
+                )
+                .await
+                .map_err(|_| {
+                    PluginError::runtime(RuntimeFailure::ProtocolViolation {
+                        capability: membership::CAPABILITY_ID,
+                    })
+                })?;
+            if !member.active {
+                return Err(PluginError::domain(
+                    collaboration::SetIssueAssigneeError::Forbidden,
+                ));
+            }
+        }
+        let prepared = self.prepared().map_err(PluginError::runtime)?;
+        map_storage(
+            storage::set_issue_assignee(&prepared.postgres, &auth.caller, &auth.actor, &request)
+                .await,
+            |failure| collaboration_error!(failure, SetIssueAssigneeError),
+        )
+    }
     async fn add_comment(
         &self,
         context: Ctx,
