@@ -195,7 +195,7 @@ fn tool_definitions() -> Vec<ToolDefinition> {
         ),
         tool(
             GET_ISSUE_TOOL,
-            "Get one visible Issue by stable ID, current identifier, or historical identifier.",
+            "Get one visible Issue by stable ID, current identifier, or historical identifier. For /projects?organization_id=ORG&issue=ID App links, use ORG and ID as the request values.",
             include_str!("../../lenso-capability-projects/schemas/get-issue-request.schema.json"),
             ToolExecutionClass::ParallelSafe,
         ),
@@ -296,7 +296,12 @@ fn rejected(reason_code: &str) -> ExecuteError {
     ExecuteError::ExecutionFailed {
         payload: ExecutionFailedPayload {
             reason_code: reason_code.to_owned(),
-            message: "Projects rejected the requested operation.".to_owned(),
+            message: match reason_code {
+                "revision_conflict" => "This issue changed since it was read. Read it again, compare the requested edit with the latest state, and ask the user if those changes conflict. Do not overwrite the newer revision automatically.",
+                "idempotency_conflict" => "This request key was already used for a different edit. Read the issue to verify its current state before creating a new request.",
+                "workflow_state_not_found" => "The selected workflow state is unavailable. Read this Team's current workflow states before updating the issue.",
+                _ => "Projects rejected the requested operation.",
+            }.to_owned(),
             details_json: serde_json::json!({ "domain_error": reason_code })
                 .to_string()
                 .try_into()
@@ -461,5 +466,7 @@ mod tests {
             panic!("revision conflict must remain an execution failure");
         };
         assert_eq!(payload.reason_code, "revision_conflict");
+        assert!(payload.message.contains("Read it again"));
+        assert!(payload.message.contains("Do not overwrite"));
     }
 }
