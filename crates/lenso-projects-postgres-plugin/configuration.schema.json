@@ -29,8 +29,7 @@
       "minItems": 1,
       "maxItems": 64,
       "items": {
-        "type": "string",
-        "pattern": "^[A-Za-z0-9._:-]+(?:/[A-Za-z0-9._:-]+)?$"
+        "type": "string"
       }
     },
     "admin_callers": {
@@ -38,8 +37,7 @@
       "minItems": 1,
       "maxItems": 64,
       "items": {
-        "type": "string",
-        "pattern": "^[A-Za-z0-9._:-]+(?:/[A-Za-z0-9._:-]+)?$"
+        "type": "string"
       }
     },
     "governance_callers": {
@@ -47,8 +45,7 @@
       "minItems": 1,
       "maxItems": 64,
       "items": {
-        "type": "string",
-        "pattern": "^[A-Za-z0-9._:-]+(?:/[A-Za-z0-9._:-]+)?$"
+        "type": "string"
       }
     }
   }
