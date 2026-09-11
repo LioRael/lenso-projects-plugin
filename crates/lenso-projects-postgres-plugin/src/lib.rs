@@ -240,6 +240,9 @@ impl ProjectsPlugin {
                 OrganizationMembershipInvocationError::Runtime(error) => {
                     AuthorizationFailure::Runtime(error)
                 }
+                OrganizationMembershipInvocationError::Domain(
+                    membership::CheckMembershipError::OrganizationNotFound,
+                ) => AuthorizationFailure::Forbidden,
                 OrganizationMembershipInvocationError::Domain(_) => {
                     AuthorizationFailure::Runtime(RuntimeFailure::ProtocolViolation {
                         capability: membership::CAPABILITY_ID,
