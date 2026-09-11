@@ -1564,7 +1564,7 @@ async fn resolve_secret(
 fn valid_callers(values: &[String]) -> bool {
     !values.is_empty()
         && values.len() <= MAX_CALLERS
-        && values.iter().all(|value| valid_id(value))
+        && values.iter().all(|value| valid_caller(value))
         && values.iter().collect::<BTreeSet<_>>().len() == values.len()
 }
 fn valid_id(value: &str) -> bool {
@@ -1607,7 +1607,7 @@ fn valid_idempotent_revision(key: &str, id: &str, revision: &str) -> bool {
 fn unique_ids(values: &[String]) -> bool {
     !values.is_empty()
         && values.len() <= 64
-        && values.iter().all(|value| valid_id(value))
+        && values.iter().all(|value| valid_caller(value))
         && values.iter().collect::<BTreeSet<_>>().len() == values.len()
 }
 fn valid_project_create(request: &projects::CreateProjectRequest) -> bool {
@@ -2385,5 +2385,31 @@ impl ProjectsPlugin {
             storage::list_activity(&prepared.postgres, &auth.actor, &request).await,
             |failure| project_error!(failure, ListActivityError),
         )
+    }
+}
+
+// Preserve exact legacy keys while admitting canonical Plugin Root instance keys.
+fn valid_caller(value: &str) -> bool {
+    value.len() <= 256
+        && value.split('/').count() <= 2
+        && value
+            .split('/')
+            .all(|part| !matches!(part, "." | "..") && valid_id(part))
+}
+
+#[test]
+fn caller_configuration_accepts_exact_plugin_root_keys_without_patterns() {
+    assert!(valid_caller("legacy-caller"));
+    assert!(valid_caller("lenso.projects.web/default"));
+    for invalid in [
+        "",
+        "/default",
+        "plugin/",
+        "plugin/a/b",
+        "plugin/*",
+        "plugin/..",
+        "plugin/ default",
+    ] {
+        assert!(!valid_caller(invalid), "unexpected caller {invalid}");
     }
 }
