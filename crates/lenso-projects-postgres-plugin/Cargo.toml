@@ -26,7 +26,7 @@ lenso-kernel.workspace = true
 lenso-postgres-kit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
+
 thiserror.workspace = true
 time.workspace = true
 uuid.workspace = true

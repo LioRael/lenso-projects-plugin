@@ -30,10 +30,9 @@ lenso-capability-secrets = { version = "0.1.4" }
 lenso-contract-runtime = { version = "0.2.0" }
 lenso-kernel = { version = "0.3.5" }
 lenso-plugin-authoring = { version = "0.2.0" }
-lenso-postgres-kit = { version = "0.1.0" }
+lenso-postgres-kit = { git = "https://github.com/LioRael/lenso-postgres-kit", rev = "2d04625955dffa8f55b02499604f5969e3f5f1c3", features = ["uuid"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "json", "time", "uuid"] }
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1.52", features = ["macros", "rt"] }

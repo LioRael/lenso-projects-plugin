@@ -2,7 +2,7 @@ use super::*;
 
 use lenso_capability_projects_admin::{PutTeamRequest, PutWorkflowStateRequest, WorkflowCategory};
 use lenso_postgres_kit::OwnedPostgres;
-use sqlx::AssertSqlSafe;
+use lenso_postgres_kit::sqlx::AssertSqlSafe;
 
 async fn prepare() -> Option<(String, String, OwnedPostgres)> {
     let Some(database_url) = std::env::var("LENSO_PROJECTS_TEST_DATABASE_URL").ok() else {
@@ -31,8 +31,10 @@ async fn prepare() -> Option<(String, String, OwnedPostgres)> {
 
 async fn cleanup(database_url: &str, schema: &str, postgres: OwnedPostgres) {
     postgres.pool().close().await;
-    let pool = sqlx::PgPool::connect(database_url).await.unwrap();
-    sqlx::query(AssertSqlSafe(format!("DROP SCHEMA \"{schema}\" CASCADE")))
+    let pool = lenso_postgres_kit::sqlx::PgPool::connect(database_url)
+        .await
+        .unwrap();
+    lenso_postgres_kit::sqlx::query(AssertSqlSafe(format!("DROP SCHEMA \"{schema}\" CASCADE")))
         .execute(&pool)
         .await
         .unwrap();
@@ -1036,7 +1038,7 @@ async fn issue_workflow_catalog_preserves_team_visibility_and_pagination() {
             .iter()
             .any(|previous| previous.state_id == state.state_id)
     }));
-    sqlx::query("UPDATE teams SET private=true WHERE team_id=$1")
+    lenso_postgres_kit::sqlx::query("UPDATE teams SET private=true WHERE team_id=$1")
         .bind("team_eng")
         .execute(postgres.pool())
         .await

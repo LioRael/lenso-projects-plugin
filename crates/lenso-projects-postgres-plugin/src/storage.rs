@@ -9,9 +9,9 @@ use lenso_capability_projects_admin as admin;
 use lenso_capability_projects_collaboration as collaboration;
 use lenso_kernel::RuntimeFailure;
 use lenso_postgres_kit::OwnedPostgres;
+use lenso_postgres_kit::sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
 use time::{Date, OffsetDateTime, format_description::well_known::Rfc3339};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,19 +77,19 @@ async fn reserve_command<T: Serialize>(
 ) -> Result<CommandStart, StorageError> {
     let request = serde_json::to_value(request)
         .map_err(|error| runtime("serialize command request", error))?;
-    let inserted = sqlx::query("INSERT INTO project_commands(caller_instance,actor_subject,operation,idempotency_key,request) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
+    let inserted = lenso_postgres_kit::sqlx::query("INSERT INTO project_commands(caller_instance,actor_subject,operation,idempotency_key,request) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
         .bind(caller)
         .bind(actor)
         .bind(operation)
         .bind(idempotency_key)
-        .bind(sqlx::types::Json(request.clone()))
+        .bind(lenso_postgres_kit::sqlx::types::Json(request.clone()))
         .execute(&mut **transaction)
         .await
         .map_err(|error| runtime("reserve command", error))?;
     if inserted.rows_affected() == 1 {
         return Ok(CommandStart::New);
     }
-    let row = sqlx::query("SELECT request,response FROM project_commands WHERE caller_instance=$1 AND actor_subject=$2 AND operation=$3 AND idempotency_key=$4 FOR UPDATE")
+    let row = lenso_postgres_kit::sqlx::query("SELECT request,response FROM project_commands WHERE caller_instance=$1 AND actor_subject=$2 AND operation=$3 AND idempotency_key=$4 FOR UPDATE")
         .bind(caller)
         .bind(actor)
         .bind(operation)
@@ -97,13 +97,13 @@ async fn reserve_command<T: Serialize>(
         .fetch_one(&mut **transaction)
         .await
         .map_err(|error| runtime("read command replay", error))?;
-    let stored: sqlx::types::Json<Value> = row
+    let stored: lenso_postgres_kit::sqlx::types::Json<Value> = row
         .try_get("request")
         .map_err(|error| runtime("decode command request", error))?;
     if stored.0 != request {
         return Ok(CommandStart::Conflict);
     }
-    let response: Option<sqlx::types::Json<Value>> = row
+    let response: Option<lenso_postgres_kit::sqlx::types::Json<Value>> = row
         .try_get("response")
         .map_err(|error| runtime("decode command response", error))?;
     response.map_or_else(
@@ -127,12 +127,12 @@ async fn complete_command<T: Serialize>(
 ) -> Result<(), StorageError> {
     let response = serde_json::to_value(response)
         .map_err(|error| runtime("serialize command response", error))?;
-    let updated = sqlx::query("UPDATE project_commands SET response=$5,completed_at=transaction_timestamp() WHERE caller_instance=$1 AND actor_subject=$2 AND operation=$3 AND idempotency_key=$4 AND response IS NULL")
+    let updated = lenso_postgres_kit::sqlx::query("UPDATE project_commands SET response=$5,completed_at=transaction_timestamp() WHERE caller_instance=$1 AND actor_subject=$2 AND operation=$3 AND idempotency_key=$4 AND response IS NULL")
         .bind(caller)
         .bind(actor)
         .bind(operation)
         .bind(idempotency_key)
-        .bind(sqlx::types::Json(response))
+        .bind(lenso_postgres_kit::sqlx::types::Json(response))
         .execute(&mut **transaction)
         .await
         .map_err(|error| runtime("complete command", error))?;
@@ -164,13 +164,13 @@ async fn append_activity(
     // transaction could publish activity N+1 while activity N remains uncommitted, causing a
     // checkpointing consumer to skip N forever. Holding this schema-scoped advisory lock from
     // allocation through commit makes activity IDs a safe exclusive high-water cursor.
-    sqlx::query(
+    lenso_postgres_kit::sqlx::query(
         "SELECT pg_advisory_xact_lock(hashtext(current_schema()), hashtext('lenso.projects.activity.v1'))",
     )
     .execute(&mut **transaction)
     .await
     .map_err(|error| runtime("acquire activity commit gate", error))?;
-    sqlx::query("INSERT INTO project_activity(organization_id,project_id,issue_id,actor_subject,operation,entity_kind,entity_id,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+    lenso_postgres_kit::sqlx::query("INSERT INTO project_activity(organization_id,project_id,issue_id,actor_subject,operation,entity_kind,entity_id,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
         .bind(organization_id)
         .bind(project_id)
         .bind(issue_id)
@@ -204,7 +204,7 @@ async fn ensure_project_status_catalog(
     organization_id: &str,
 ) -> Result<String, StorageError> {
     let proposed_default = fresh_catalog_id("project_status");
-    let inserted: Option<String> = sqlx::query_scalar(
+    let inserted: Option<String> = lenso_postgres_kit::sqlx::query_scalar(
         "INSERT INTO project_workspaces(organization_id,default_project_status_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING default_project_status_id",
     )
     .bind(organization_id)
@@ -257,7 +257,7 @@ async fn ensure_project_status_catalog(
             ),
         ];
         for (status_id, name, category, color, position, is_default) in defaults {
-            sqlx::query("INSERT INTO project_statuses(status_id,organization_id,name,category,color,position,is_default) VALUES($1,$2,$3,$4,$5,$6,$7)")
+            lenso_postgres_kit::sqlx::query("INSERT INTO project_statuses(status_id,organization_id,name,category,color,position,is_default) VALUES($1,$2,$3,$4,$5,$6,$7)")
                 .bind(status_id)
                 .bind(organization_id)
                 .bind(name)
@@ -271,7 +271,7 @@ async fn ensure_project_status_catalog(
         }
         return Ok(default_id);
     }
-    sqlx::query_scalar(
+    lenso_postgres_kit::sqlx::query_scalar(
         "SELECT default_project_status_id FROM project_workspaces WHERE organization_id=$1",
     )
     .bind(organization_id)
@@ -287,7 +287,7 @@ async fn resolve_project_status(
 ) -> Result<(String, String), StorageError> {
     let default_id = ensure_project_status_catalog(connection, organization_id).await?;
     let status_id = requested_status_id.unwrap_or(&default_id);
-    sqlx::query_as(
+    lenso_postgres_kit::sqlx::query_as(
         "SELECT status_id,category FROM project_statuses WHERE organization_id=$1 AND status_id=$2 AND NOT archived FOR KEY SHARE",
     )
     .bind(organization_id)
@@ -304,7 +304,7 @@ async fn resolve_issue_workflow_state(
     team_id: &str,
     requested_state_id: Option<&str>,
 ) -> Result<String, StorageError> {
-    let state_id: Option<String> = sqlx::query_scalar(
+    let state_id: Option<String> = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT ws.state_id FROM teams t JOIN workflow_states ws ON ws.organization_id=t.organization_id AND ws.team_id=t.team_id AND ws.state_id=COALESCE($3,t.default_workflow_state_id) WHERE t.organization_id=$1 AND t.team_id=$2 AND NOT ws.archived FOR KEY SHARE OF ws",
     )
     .bind(organization_id)
@@ -342,7 +342,7 @@ async fn project_visibility(
     project_id: &str,
     actor: &str,
 ) -> Result<Option<bool>, StorageError> {
-    let row = sqlx::query("SELECT NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams t ON t.organization_id=pt.organization_id AND t.team_id=pt.team_id WHERE pt.organization_id=p.organization_id AND pt.project_id=p.project_id AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$3 AND tm.active)) AS visible FROM projects p WHERE p.organization_id=$1 AND p.project_id=$2")
+    let row = lenso_postgres_kit::sqlx::query("SELECT NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams t ON t.organization_id=pt.organization_id AND t.team_id=pt.team_id WHERE pt.organization_id=p.organization_id AND pt.project_id=p.project_id AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$3 AND tm.active)) AS visible FROM projects p WHERE p.organization_id=$1 AND p.project_id=$2")
         .bind(organization_id)
         .bind(project_id)
         .bind(actor)
@@ -362,7 +362,7 @@ async fn issue_visibility(
     issue_id: &str,
     actor: &str,
 ) -> Result<Option<bool>, StorageError> {
-    let row = sqlx::query("SELECT (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$3 AND tm.active)) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams attached ON attached.organization_id=pt.organization_id AND attached.team_id=pt.team_id WHERE pt.organization_id=i.organization_id AND pt.project_id=i.project_id AND attached.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=attached.organization_id AND tm.team_id=attached.team_id AND tm.subject=$3 AND tm.active)) AS visible FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=$1 AND i.issue_id=$2")
+    let row = lenso_postgres_kit::sqlx::query("SELECT (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$3 AND tm.active)) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams attached ON attached.organization_id=pt.organization_id AND attached.team_id=pt.team_id WHERE pt.organization_id=i.organization_id AND pt.project_id=i.project_id AND attached.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=attached.organization_id AND tm.team_id=attached.team_id AND tm.subject=$3 AND tm.active)) AS visible FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=$1 AND i.issue_id=$2")
         .bind(organization_id)
         .bind(issue_id)
         .bind(actor)
@@ -381,7 +381,7 @@ async fn load_project_value(
     organization_id: &str,
     project_id: &str,
 ) -> Result<Option<Value>, StorageError> {
-    let row = sqlx::query("SELECT p.project_id,p.organization_id,p.name,p.summary,p.lead_team_id,p.status_id,p.milestone_id,p.starts_on,p.target_date,p.completed_at,p.canceled_at,p.archived,p.revision,p.created_at,p.updated_at,ARRAY_AGG(pt.team_id ORDER BY pt.team_id) AS team_ids FROM projects p JOIN project_teams pt ON pt.organization_id=p.organization_id AND pt.project_id=p.project_id WHERE p.organization_id=$1 AND p.project_id=$2 GROUP BY p.project_id")
+    let row = lenso_postgres_kit::sqlx::query("SELECT p.project_id,p.organization_id,p.name,p.summary,p.lead_team_id,p.status_id,p.milestone_id,p.starts_on,p.target_date,p.completed_at,p.canceled_at,p.archived,p.revision,p.created_at,p.updated_at,ARRAY_AGG(pt.team_id ORDER BY pt.team_id) AS team_ids FROM projects p JOIN project_teams pt ON pt.organization_id=p.organization_id AND pt.project_id=p.project_id WHERE p.organization_id=$1 AND p.project_id=$2 GROUP BY p.project_id")
         .bind(organization_id)
         .bind(project_id)
         .fetch_optional(&mut *connection)
@@ -416,7 +416,7 @@ async fn load_issue_value(
     organization_id: &str,
     issue_id: &str,
 ) -> Result<Option<Value>, StorageError> {
-    let row = sqlx::query("SELECT issue_id,organization_id,identifier,project_id,team_id,title,description,priority,workflow_state_id,cycle_id,milestone_id,parent_issue_id,archived,revision,created_at,updated_at FROM issues WHERE organization_id=$1 AND issue_id=$2")
+    let row = lenso_postgres_kit::sqlx::query("SELECT issue_id,organization_id,identifier,project_id,team_id,title,description,priority,workflow_state_id,cycle_id,milestone_id,parent_issue_id,archived,revision,created_at,updated_at FROM issues WHERE organization_id=$1 AND issue_id=$2")
         .bind(organization_id)
         .bind(issue_id)
         .fetch_optional(&mut *connection)
@@ -428,10 +428,10 @@ async fn load_issue_value(
     let identifier: String = row
         .try_get("identifier")
         .map_err(|error| runtime("decode issue", error))?;
-    let previous = sqlx::query("SELECT identifier FROM issue_identifier_aliases WHERE organization_id=$1 AND issue_id=$2 AND identifier<>$3 ORDER BY created_at,identifier")
+    let previous = lenso_postgres_kit::sqlx::query("SELECT identifier FROM issue_identifier_aliases WHERE organization_id=$1 AND issue_id=$2 AND identifier<>$3 ORDER BY created_at,identifier")
         .bind(organization_id).bind(issue_id).bind(&identifier).fetch_all(&mut *connection).await.map_err(|error| runtime("load issue identifier aliases", error))?
         .into_iter().map(|row| row.try_get("identifier").map_err(|error| runtime("decode issue alias", error))).collect::<Result<Vec<String>,_>>()?;
-    let labels = sqlx::query("SELECT label_id FROM issue_labels WHERE organization_id=$1 AND issue_id=$2 ORDER BY label_id")
+    let labels = lenso_postgres_kit::sqlx::query("SELECT label_id FROM issue_labels WHERE organization_id=$1 AND issue_id=$2 ORDER BY label_id")
         .bind(organization_id).bind(issue_id).fetch_all(&mut *connection).await.map_err(|error| runtime("load issue labels", error))?
         .into_iter().map(|row| row.try_get("label_id").map_err(|error| runtime("decode issue label", error))).collect::<Result<Vec<String>,_>>()?;
     let created_at: OffsetDateTime = row
@@ -462,7 +462,7 @@ async fn resolve_issue_id(
     organization_id: &str,
     issue_ref: &str,
 ) -> Result<Option<String>, StorageError> {
-    sqlx::query_scalar("SELECT issue_id FROM (SELECT issue_id,0 AS priority FROM issues WHERE organization_id=$1 AND issue_id=$2 UNION ALL SELECT issue_id,1 AS priority FROM issue_identifier_aliases WHERE organization_id=$1 AND identifier=$2) resolved_refs ORDER BY priority LIMIT 1")
+    lenso_postgres_kit::sqlx::query_scalar("SELECT issue_id FROM (SELECT issue_id,0 AS priority FROM issues WHERE organization_id=$1 AND issue_id=$2 UNION ALL SELECT issue_id,1 AS priority FROM issue_identifier_aliases WHERE organization_id=$1 AND identifier=$2) resolved_refs ORDER BY priority LIMIT 1")
         .bind(organization_id).bind(issue_ref).fetch_optional(pool).await.map_err(|error| runtime("resolve issue reference", error))
 }
 
@@ -472,7 +472,7 @@ async fn project_teams_cover_existing_issues(
     project_id: &str,
     team_ids: &[String],
 ) -> Result<bool, StorageError> {
-    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM issues WHERE organization_id=$1 AND project_id=$2 AND NOT (team_id=ANY($3)))")
+    lenso_postgres_kit::sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM issues WHERE organization_id=$1 AND project_id=$2 AND NOT (team_id=ANY($3)))")
         .bind(organization_id)
         .bind(project_id)
         .bind(team_ids)
@@ -490,7 +490,7 @@ async fn parent_would_create_cycle(
     let Some(parent_issue_id) = parent_issue_id else {
         return Ok(false);
     };
-    sqlx::query_scalar("WITH RECURSIVE descendants(issue_id) AS (SELECT issue_id FROM issues WHERE organization_id=$1 AND parent_issue_id=$2 UNION ALL SELECT child.issue_id FROM issues child JOIN descendants parent ON child.parent_issue_id=parent.issue_id WHERE child.organization_id=$1) SELECT EXISTS(SELECT 1 FROM descendants WHERE issue_id=$3)")
+    lenso_postgres_kit::sqlx::query_scalar("WITH RECURSIVE descendants(issue_id) AS (SELECT issue_id FROM issues WHERE organization_id=$1 AND parent_issue_id=$2 UNION ALL SELECT child.issue_id FROM issues child JOIN descendants parent ON child.parent_issue_id=parent.issue_id WHERE child.organization_id=$1) SELECT EXISTS(SELECT 1 FROM descendants WHERE issue_id=$3)")
         .bind(organization_id)
         .bind(issue_id)
         .bind(parent_issue_id)
@@ -505,7 +505,7 @@ async fn teams_are_visible(
     team_ids: &[String],
     actor: &str,
 ) -> Result<Result<(), DomainFailure>, StorageError> {
-    let rows: i64 = sqlx::query_scalar(
+    let rows: i64 = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT COUNT(*) FROM teams WHERE organization_id=$1 AND team_id=ANY($2)",
     )
     .bind(organization_id)
@@ -516,7 +516,7 @@ async fn teams_are_visible(
     if usize::try_from(rows).ok() != Some(team_ids.len()) {
         return Ok(Err(DomainFailure::TeamNotFound));
     }
-    let hidden: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM teams t WHERE t.organization_id=$1 AND t.team_id=ANY($2) AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$3 AND tm.active)")
+    let hidden: i64 = lenso_postgres_kit::sqlx::query_scalar("SELECT COUNT(*) FROM teams t WHERE t.organization_id=$1 AND t.team_id=ANY($2) AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$3 AND tm.active)")
         .bind(organization_id).bind(team_ids).bind(actor).fetch_one(pool).await.map_err(|error| runtime("validate private project teams", error))?;
     if hidden > 0 {
         return Ok(Err(DomainFailure::PrivateTeam));
@@ -531,7 +531,7 @@ async fn project_dependencies_exist(
     milestone_id: Option<&str>,
 ) -> Result<Result<(), DomainFailure>, StorageError> {
     if let Some(milestone_id) = milestone_id {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM milestones WHERE organization_id=$1 AND project_id=$2 AND milestone_id=$3)")
+        let exists: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM milestones WHERE organization_id=$1 AND project_id=$2 AND milestone_id=$3)")
             .bind(organization_id).bind(project_id).bind(milestone_id).fetch_one(pool).await.map_err(|error| runtime("validate project milestone", error))?;
         if !exists {
             return Ok(Err(DomainFailure::MilestoneNotFound));
@@ -593,7 +593,7 @@ pub(crate) async fn create_project(
         request.status_id.as_deref(),
     )
     .await?;
-    let inserted = sqlx::query("INSERT INTO projects(project_id,organization_id,name,summary,lead_team_id,status_id,milestone_id,starts_on,target_date,completed_at,canceled_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $10='completed' THEN transaction_timestamp() END,CASE WHEN $10='canceled' THEN transaction_timestamp() END) ON CONFLICT DO NOTHING")
+    let inserted = lenso_postgres_kit::sqlx::query("INSERT INTO projects(project_id,organization_id,name,summary,lead_team_id,status_id,milestone_id,starts_on,target_date,completed_at,canceled_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $10='completed' THEN transaction_timestamp() END,CASE WHEN $10='canceled' THEN transaction_timestamp() END) ON CONFLICT DO NOTHING")
         .bind(&request.project_id).bind(&request.organization_id).bind(request.name.trim()).bind(request.summary.as_deref().map(str::trim))
         .bind(&request.lead_team_id).bind(&status_id).bind(&request.milestone_id).bind(starts_on).bind(target_date).bind(status_category)
         .execute(&mut *tx).await.map_err(|error| runtime("insert project", error))?;
@@ -601,7 +601,7 @@ pub(crate) async fn create_project(
         return Err(DomainFailure::IdentifierConflict.into());
     }
     for team_id in &request.team_ids {
-        sqlx::query(
+        lenso_postgres_kit::sqlx::query(
             "INSERT INTO project_teams(organization_id,project_id,team_id) VALUES($1,$2,$3)",
         )
         .bind(&request.organization_id)
@@ -681,7 +681,7 @@ pub(crate) async fn list_projects(
 ) -> Result<projects::ListProjectsResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
     let fetch_limit = request.limit + 1;
-    let rows = sqlx::query("SELECT DISTINCT p.project_id,p.row_seq FROM projects p JOIN project_teams filter_pt ON filter_pt.organization_id=p.organization_id AND filter_pt.project_id=p.project_id WHERE p.organization_id=$1 AND p.row_seq>$2 AND ($3::text IS NULL OR filter_pt.team_id=$3) AND ($4 OR NOT p.archived) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams t ON t.organization_id=pt.organization_id AND t.team_id=pt.team_id WHERE pt.organization_id=p.organization_id AND pt.project_id=p.project_id AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$5 AND tm.active)) ORDER BY p.row_seq LIMIT $6")
+    let rows = lenso_postgres_kit::sqlx::query("SELECT DISTINCT p.project_id,p.row_seq FROM projects p JOIN project_teams filter_pt ON filter_pt.organization_id=p.organization_id AND filter_pt.project_id=p.project_id WHERE p.organization_id=$1 AND p.row_seq>$2 AND ($3::text IS NULL OR filter_pt.team_id=$3) AND ($4 OR NOT p.archived) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams t ON t.organization_id=pt.organization_id AND t.team_id=pt.team_id WHERE pt.organization_id=p.organization_id AND pt.project_id=p.project_id AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$5 AND tm.active)) ORDER BY p.row_seq LIMIT $6")
         .bind(&request.organization_id).bind(after).bind(&request.team_id).bind(request.include_archived).bind(actor).bind(fetch_limit)
         .fetch_all(postgres.pool()).await.map_err(|error| runtime("list projects", error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
@@ -789,11 +789,11 @@ pub(crate) async fn update_project(
     }
     let (status_id, status_category) =
         resolve_project_status(&mut tx, &request.organization_id, Some(&request.status_id)).await?;
-    let updated: Option<i64> = sqlx::query_scalar("UPDATE projects SET name=$4,summary=$5,lead_team_id=$6,status_id=$7,milestone_id=$8,starts_on=$9,target_date=$10,completed_at=CASE WHEN $11='completed' THEN COALESCE(completed_at,transaction_timestamp()) ELSE NULL END,canceled_at=CASE WHEN $11='canceled' THEN COALESCE(canceled_at,transaction_timestamp()) ELSE NULL END,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND project_id=$2 AND revision=$3 RETURNING revision")
+    let updated: Option<i64> = lenso_postgres_kit::sqlx::query_scalar("UPDATE projects SET name=$4,summary=$5,lead_team_id=$6,status_id=$7,milestone_id=$8,starts_on=$9,target_date=$10,completed_at=CASE WHEN $11='completed' THEN COALESCE(completed_at,transaction_timestamp()) ELSE NULL END,canceled_at=CASE WHEN $11='canceled' THEN COALESCE(canceled_at,transaction_timestamp()) ELSE NULL END,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND project_id=$2 AND revision=$3 RETURNING revision")
         .bind(&request.organization_id).bind(&request.project_id).bind(expected).bind(request.name.trim()).bind(request.summary.as_deref().map(str::trim)).bind(&request.lead_team_id).bind(status_id).bind(&request.milestone_id).bind(starts_on).bind(target_date).bind(status_category)
         .fetch_optional(&mut *tx).await.map_err(|error| runtime("update project", error))?;
     let Some(revision) = updated else {
-        let exists: bool = sqlx::query_scalar(
+        let exists: bool = lenso_postgres_kit::sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE organization_id=$1 AND project_id=$2)",
         )
         .bind(&request.organization_id)
@@ -808,14 +808,16 @@ pub(crate) async fn update_project(
         }
         .into());
     };
-    sqlx::query("DELETE FROM project_teams WHERE organization_id=$1 AND project_id=$2")
-        .bind(&request.organization_id)
-        .bind(&request.project_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| runtime("replace project teams", error))?;
+    lenso_postgres_kit::sqlx::query(
+        "DELETE FROM project_teams WHERE organization_id=$1 AND project_id=$2",
+    )
+    .bind(&request.organization_id)
+    .bind(&request.project_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| runtime("replace project teams", error))?;
     for team_id in &request.team_ids {
-        sqlx::query(
+        lenso_postgres_kit::sqlx::query(
             "INSERT INTO project_teams(organization_id,project_id,team_id) VALUES($1,$2,$3)",
         )
         .bind(&request.organization_id)
@@ -900,10 +902,10 @@ pub(crate) async fn archive_project(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let revision: Option<i64> = sqlx::query_scalar("UPDATE projects SET archived=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND project_id=$2 AND revision=$3 RETURNING revision")
+    let revision: Option<i64> = lenso_postgres_kit::sqlx::query_scalar("UPDATE projects SET archived=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND project_id=$2 AND revision=$3 RETURNING revision")
         .bind(&request.organization_id).bind(&request.project_id).bind(expected).bind(request.archived).fetch_optional(&mut *tx).await.map_err(|error| runtime("archive project", error))?;
     let Some(revision) = revision else {
-        let exists: bool = sqlx::query_scalar(
+        let exists: bool = lenso_postgres_kit::sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE organization_id=$1 AND project_id=$2)",
         )
         .bind(&request.organization_id)
@@ -969,34 +971,34 @@ async fn issue_dependencies_exist(
     parent_issue_id: Option<&str>,
     label_ids: &[String],
 ) -> Result<Result<(), DomainFailure>, StorageError> {
-    let attached: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM project_teams WHERE organization_id=$1 AND project_id=$2 AND team_id=$3)")
+    let attached: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM project_teams WHERE organization_id=$1 AND project_id=$2 AND team_id=$3)")
         .bind(organization_id).bind(project_id).bind(team_id).fetch_one(pool).await.map_err(|error| runtime("validate issue project team", error))?;
     if !attached {
         return Ok(Err(DomainFailure::TeamNotFound));
     }
     if let Some(cycle_id) = cycle_id {
-        let cycle: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cycles WHERE organization_id=$1 AND team_id=$2 AND cycle_id=$3)")
+        let cycle: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cycles WHERE organization_id=$1 AND team_id=$2 AND cycle_id=$3)")
             .bind(organization_id).bind(team_id).bind(cycle_id).fetch_one(pool).await.map_err(|error| runtime("validate issue cycle", error))?;
         if !cycle {
             return Ok(Err(DomainFailure::CycleNotFound));
         }
     }
     if let Some(milestone_id) = milestone_id {
-        let milestone: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM milestones WHERE organization_id=$1 AND project_id=$2 AND milestone_id=$3)")
+        let milestone: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM milestones WHERE organization_id=$1 AND project_id=$2 AND milestone_id=$3)")
             .bind(organization_id).bind(project_id).bind(milestone_id).fetch_one(pool).await.map_err(|error| runtime("validate issue milestone", error))?;
         if !milestone {
             return Ok(Err(DomainFailure::MilestoneNotFound));
         }
     }
     if let Some(parent_issue_id) = parent_issue_id {
-        let parent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM issues WHERE organization_id=$1 AND project_id=$2 AND issue_id=$3)")
+        let parent: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM issues WHERE organization_id=$1 AND project_id=$2 AND issue_id=$3)")
             .bind(organization_id).bind(project_id).bind(parent_issue_id).fetch_one(pool).await.map_err(|error| runtime("validate parent issue", error))?;
         if !parent {
             return Ok(Err(DomainFailure::ParentNotFound));
         }
     }
     if !label_ids.is_empty() {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM labels WHERE organization_id=$1 AND label_id=ANY($2) AND (team_id IS NULL OR team_id=$3)")
+        let count: i64 = lenso_postgres_kit::sqlx::query_scalar("SELECT COUNT(*) FROM labels WHERE organization_id=$1 AND label_id=ANY($2) AND (team_id IS NULL OR team_id=$3)")
             .bind(organization_id).bind(label_ids).bind(team_id).fetch_one(pool).await.map_err(|error| runtime("validate issue labels", error))?;
         if usize::try_from(count).ok() != Some(label_ids.len()) {
             return Ok(Err(DomainFailure::LabelNotFound));
@@ -1066,7 +1068,7 @@ pub(crate) async fn create_issue(
         request.workflow_state_id.as_deref(),
     )
     .await?;
-    let counter = sqlx::query("UPDATE teams SET next_issue_number=next_issue_number+1 WHERE organization_id=$1 AND team_id=$2 RETURNING team_key,next_issue_number-1 AS issue_number")
+    let counter = lenso_postgres_kit::sqlx::query("UPDATE teams SET next_issue_number=next_issue_number+1 WHERE organization_id=$1 AND team_id=$2 RETURNING team_key,next_issue_number-1 AS issue_number")
         .bind(&request.organization_id).bind(&request.team_id).fetch_optional(&mut *tx).await.map_err(|error| runtime("allocate issue identifier", error))?.ok_or(DomainFailure::TeamNotFound)?;
     let team_key: String = counter
         .try_get("team_key")
@@ -1075,22 +1077,24 @@ pub(crate) async fn create_issue(
         .try_get("issue_number")
         .map_err(|error| runtime("decode issue number", error))?;
     let identifier = format!("{team_key}-{number}");
-    let inserted = sqlx::query("INSERT INTO issues(issue_id,organization_id,project_id,team_id,identifier,title,description,priority,workflow_state_id,cycle_id,milestone_id,parent_issue_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT DO NOTHING")
+    let inserted = lenso_postgres_kit::sqlx::query("INSERT INTO issues(issue_id,organization_id,project_id,team_id,identifier,title,description,priority,workflow_state_id,cycle_id,milestone_id,parent_issue_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT DO NOTHING")
         .bind(&request.issue_id).bind(&request.organization_id).bind(&request.project_id).bind(&request.team_id).bind(&identifier).bind(request.title.trim()).bind(request.description.as_deref().map(str::trim)).bind(priority_name(&request.priority)).bind(workflow_state_id).bind(&request.cycle_id).bind(&request.milestone_id).bind(&request.parent_issue_id)
         .execute(&mut *tx).await.map_err(|error| runtime("insert issue", error))?;
     if inserted.rows_affected() != 1 {
         return Err(DomainFailure::IdentifierConflict.into());
     }
-    sqlx::query("INSERT INTO issue_identifier_aliases(organization_id,identifier,issue_id) VALUES($1,$2,$3)")
+    lenso_postgres_kit::sqlx::query("INSERT INTO issue_identifier_aliases(organization_id,identifier,issue_id) VALUES($1,$2,$3)")
         .bind(&request.organization_id).bind(&identifier).bind(&request.issue_id).execute(&mut *tx).await.map_err(|error| runtime("store issue identifier", error))?;
     for label_id in &request.label_ids {
-        sqlx::query("INSERT INTO issue_labels(organization_id,issue_id,label_id) VALUES($1,$2,$3)")
-            .bind(&request.organization_id)
-            .bind(&request.issue_id)
-            .bind(label_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|error| runtime("attach issue label", error))?;
+        lenso_postgres_kit::sqlx::query(
+            "INSERT INTO issue_labels(organization_id,issue_id,label_id) VALUES($1,$2,$3)",
+        )
+        .bind(&request.organization_id)
+        .bind(&request.issue_id)
+        .bind(label_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| runtime("attach issue label", error))?;
     }
     append_activity(
         &mut tx,
@@ -1159,7 +1163,7 @@ pub(crate) async fn list_issues(
 ) -> Result<projects::ListIssuesResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
     let fetch_limit = request.limit + 1;
-    let rows = sqlx::query("SELECT i.issue_id,i.row_seq FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=$1 AND i.row_seq>$2 AND ($3::text IS NULL OR i.project_id=$3) AND ($4::text IS NULL OR i.team_id=$4) AND ($5::text IS NULL OR i.workflow_state_id=$5) AND ($6 OR NOT i.archived) AND (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$7 AND tm.active)) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams attached ON attached.organization_id=pt.organization_id AND attached.team_id=pt.team_id WHERE pt.organization_id=i.organization_id AND pt.project_id=i.project_id AND attached.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=attached.organization_id AND tm.team_id=attached.team_id AND tm.subject=$7 AND tm.active)) ORDER BY i.row_seq LIMIT $8")
+    let rows = lenso_postgres_kit::sqlx::query("SELECT i.issue_id,i.row_seq FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=$1 AND i.row_seq>$2 AND ($3::text IS NULL OR i.project_id=$3) AND ($4::text IS NULL OR i.team_id=$4) AND ($5::text IS NULL OR i.workflow_state_id=$5) AND ($6 OR NOT i.archived) AND (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$7 AND tm.active)) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams attached ON attached.organization_id=pt.organization_id AND attached.team_id=pt.team_id WHERE pt.organization_id=i.organization_id AND pt.project_id=i.project_id AND attached.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=attached.organization_id AND tm.team_id=attached.team_id AND tm.subject=$7 AND tm.active)) ORDER BY i.row_seq LIMIT $8")
         .bind(&request.organization_id).bind(after).bind(&request.project_id).bind(&request.team_id).bind(&request.workflow_state_id).bind(request.include_archived).bind(actor).bind(fetch_limit)
         .fetch_all(postgres.pool()).await.map_err(|error| runtime("list issues", error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
@@ -1201,7 +1205,7 @@ pub(crate) async fn update_issue(
     actor: &str,
     request: &projects::UpdateIssueRequest,
 ) -> Result<projects::UpdateIssueResponse, StorageError> {
-    let current = sqlx::query(
+    let current = lenso_postgres_kit::sqlx::query(
         "SELECT project_id,team_id FROM issues WHERE organization_id=$1 AND issue_id=$2",
     )
     .bind(&request.organization_id)
@@ -1282,26 +1286,30 @@ pub(crate) async fn update_issue(
         Some(&request.workflow_state_id),
     )
     .await?;
-    let revision: Option<i64> = sqlx::query_scalar("UPDATE issues SET title=$4,description=$5,priority=$6,workflow_state_id=$7,cycle_id=$8,milestone_id=$9,parent_issue_id=$10,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision")
+    let revision: Option<i64> = lenso_postgres_kit::sqlx::query_scalar("UPDATE issues SET title=$4,description=$5,priority=$6,workflow_state_id=$7,cycle_id=$8,milestone_id=$9,parent_issue_id=$10,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision")
         .bind(&request.organization_id).bind(&request.issue_id).bind(expected).bind(request.title.trim()).bind(request.description.as_deref().map(str::trim)).bind(priority_name(&request.priority)).bind(workflow_state_id).bind(&request.cycle_id).bind(&request.milestone_id).bind(&request.parent_issue_id)
         .fetch_optional(&mut *tx).await.map_err(|error| runtime("update issue", error))?;
     let Some(revision) = revision else {
         return Err(DomainFailure::RevisionConflict.into());
     };
-    sqlx::query("DELETE FROM issue_labels WHERE organization_id=$1 AND issue_id=$2")
+    lenso_postgres_kit::sqlx::query(
+        "DELETE FROM issue_labels WHERE organization_id=$1 AND issue_id=$2",
+    )
+    .bind(&request.organization_id)
+    .bind(&request.issue_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| runtime("replace issue labels", error))?;
+    for label_id in &request.label_ids {
+        lenso_postgres_kit::sqlx::query(
+            "INSERT INTO issue_labels(organization_id,issue_id,label_id) VALUES($1,$2,$3)",
+        )
         .bind(&request.organization_id)
         .bind(&request.issue_id)
+        .bind(label_id)
         .execute(&mut *tx)
         .await
-        .map_err(|error| runtime("replace issue labels", error))?;
-    for label_id in &request.label_ids {
-        sqlx::query("INSERT INTO issue_labels(organization_id,issue_id,label_id) VALUES($1,$2,$3)")
-            .bind(&request.organization_id)
-            .bind(&request.issue_id)
-            .bind(label_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|error| runtime("replace issue label", error))?;
+        .map_err(|error| runtime("replace issue label", error))?;
     }
     append_activity(
         &mut tx,
@@ -1340,14 +1348,15 @@ pub(crate) async fn move_issue(
     actor: &str,
     request: &projects::MoveIssueRequest,
 ) -> Result<projects::MoveIssueResponse, StorageError> {
-    let current =
-        sqlx::query("SELECT project_id FROM issues WHERE organization_id=$1 AND issue_id=$2")
-            .bind(&request.organization_id)
-            .bind(&request.issue_id)
-            .fetch_optional(postgres.pool())
-            .await
-            .map_err(|error| runtime("read issue for move", error))?
-            .ok_or(DomainFailure::NotFound)?;
+    let current = lenso_postgres_kit::sqlx::query(
+        "SELECT project_id FROM issues WHERE organization_id=$1 AND issue_id=$2",
+    )
+    .bind(&request.organization_id)
+    .bind(&request.issue_id)
+    .fetch_optional(postgres.pool())
+    .await
+    .map_err(|error| runtime("read issue for move", error))?
+    .ok_or(DomainFailure::NotFound)?;
     let project_id: String = current
         .try_get("project_id")
         .map_err(|error| runtime("decode moved issue project", error))?;
@@ -1409,7 +1418,7 @@ pub(crate) async fn move_issue(
         Some(&request.workflow_state_id),
     )
     .await?;
-    let counter = sqlx::query("UPDATE teams SET next_issue_number=next_issue_number+1 WHERE organization_id=$1 AND team_id=$2 RETURNING team_key,next_issue_number-1 AS issue_number")
+    let counter = lenso_postgres_kit::sqlx::query("UPDATE teams SET next_issue_number=next_issue_number+1 WHERE organization_id=$1 AND team_id=$2 RETURNING team_key,next_issue_number-1 AS issue_number")
         .bind(&request.organization_id).bind(&request.team_id).fetch_optional(&mut *tx).await.map_err(|error| runtime("allocate moved issue identifier", error))?.ok_or(DomainFailure::TeamNotFound)?;
     let team_key: String = counter
         .try_get("team_key")
@@ -1418,13 +1427,13 @@ pub(crate) async fn move_issue(
         .try_get("issue_number")
         .map_err(|error| runtime("decode moved issue number", error))?;
     let identifier = format!("{team_key}-{number}");
-    let revision: Option<i64> = sqlx::query_scalar("UPDATE issues SET team_id=$4,identifier=$5,workflow_state_id=$6,cycle_id=NULL,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision")
+    let revision: Option<i64> = lenso_postgres_kit::sqlx::query_scalar("UPDATE issues SET team_id=$4,identifier=$5,workflow_state_id=$6,cycle_id=NULL,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision")
         .bind(&request.organization_id).bind(&request.issue_id).bind(expected).bind(&request.team_id).bind(&identifier).bind(workflow_state_id).fetch_optional(&mut *tx).await.map_err(|error| runtime("move issue", error))?;
     let Some(revision) = revision else {
         return Err(DomainFailure::RevisionConflict.into());
     };
-    sqlx::query("INSERT INTO issue_identifier_aliases(organization_id,identifier,issue_id) VALUES($1,$2,$3)").bind(&request.organization_id).bind(&identifier).bind(&request.issue_id).execute(&mut *tx).await.map_err(|error| runtime("store moved issue identifier", error))?;
-    sqlx::query("DELETE FROM issue_labels il USING labels l WHERE il.organization_id=$1 AND il.issue_id=$2 AND l.organization_id=il.organization_id AND l.label_id=il.label_id AND l.team_id IS NOT NULL AND l.team_id<>$3")
+    lenso_postgres_kit::sqlx::query("INSERT INTO issue_identifier_aliases(organization_id,identifier,issue_id) VALUES($1,$2,$3)").bind(&request.organization_id).bind(&identifier).bind(&request.issue_id).execute(&mut *tx).await.map_err(|error| runtime("store moved issue identifier", error))?;
+    lenso_postgres_kit::sqlx::query("DELETE FROM issue_labels il USING labels l WHERE il.organization_id=$1 AND il.issue_id=$2 AND l.organization_id=il.organization_id AND l.label_id=il.label_id AND l.team_id IS NOT NULL AND l.team_id<>$3")
         .bind(&request.organization_id).bind(&request.issue_id).bind(&request.team_id).execute(&mut *tx).await.map_err(|error| runtime("remove incompatible moved issue labels", error))?;
     append_activity(
         &mut tx,
@@ -1501,7 +1510,7 @@ pub(crate) async fn archive_issue(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let row = sqlx::query("UPDATE issues SET archived=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision,project_id")
+    let row = lenso_postgres_kit::sqlx::query("UPDATE issues SET archived=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision,project_id")
         .bind(&request.organization_id).bind(&request.issue_id).bind(expected).bind(request.archived).fetch_optional(&mut *tx).await.map_err(|error| runtime("archive issue", error))?;
     let Some(row) = row else {
         return Err(DomainFailure::RevisionConflict.into());
@@ -1561,7 +1570,7 @@ pub(crate) async fn put_external_link(
         Some(false) => return Err(DomainFailure::PrivateTeam.into()),
         None => return Err(DomainFailure::NotFound.into()),
     }
-    let project_id: String = sqlx::query_scalar(
+    let project_id: String = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT project_id FROM issues WHERE organization_id=$1 AND issue_id=$2",
     )
     .bind(&request.organization_id)
@@ -1594,16 +1603,16 @@ pub(crate) async fn put_external_link(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let inserted = sqlx::query("INSERT INTO issue_external_links(organization_id,issue_id,provider,external_key,url,title) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
+    let inserted = lenso_postgres_kit::sqlx::query("INSERT INTO issue_external_links(organization_id,issue_id,provider,external_key,url,title) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
         .bind(&request.organization_id).bind(&request.issue_id).bind(&request.provider).bind(&request.external_key).bind(&request.url).bind(&request.title).execute(&mut *tx).await.map_err(|error| runtime("insert external link", error))?;
     let created = inserted.rows_affected() == 1;
-    let existing_issue: String = sqlx::query_scalar("SELECT issue_id FROM issue_external_links WHERE organization_id=$1 AND provider=$2 AND external_key=$3 FOR UPDATE")
+    let existing_issue: String = lenso_postgres_kit::sqlx::query_scalar("SELECT issue_id FROM issue_external_links WHERE organization_id=$1 AND provider=$2 AND external_key=$3 FOR UPDATE")
         .bind(&request.organization_id).bind(&request.provider).bind(&request.external_key).fetch_one(&mut *tx).await.map_err(|error| runtime("read external link", error))?;
     if existing_issue != request.issue_id {
         return Err(DomainFailure::IdentifierConflict.into());
     }
     if !created {
-        sqlx::query("UPDATE issue_external_links SET url=$4,title=$5 WHERE organization_id=$1 AND provider=$2 AND external_key=$3")
+        lenso_postgres_kit::sqlx::query("UPDATE issue_external_links SET url=$4,title=$5 WHERE organization_id=$1 AND provider=$2 AND external_key=$3")
             .bind(&request.organization_id).bind(&request.provider).bind(&request.external_key).bind(&request.url).bind(&request.title).execute(&mut *tx).await.map_err(|error| runtime("update external link", error))?;
     }
     let response = projects::PutExternalLinkResponse {
@@ -1663,7 +1672,7 @@ pub(crate) async fn list_activity(
             None => return Err(DomainFailure::NotFound.into()),
         }
     }
-    let rows = sqlx::query("SELECT a.activity_id,a.organization_id,a.project_id,a.issue_id,a.actor_subject,a.operation,a.entity_kind,a.entity_id,a.revision,a.occurred_at FROM project_activity a WHERE a.organization_id=$1 AND a.activity_id>$2 AND (a.project_id IS NOT NULL OR a.issue_id IS NOT NULL) AND ($3::text IS NULL OR a.project_id=$3) AND ($4::text IS NULL OR a.issue_id=$4) AND (a.project_id IS NULL OR NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams t ON t.organization_id=pt.organization_id AND t.team_id=pt.team_id WHERE pt.organization_id=a.organization_id AND pt.project_id=a.project_id AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$5 AND tm.active))) AND (a.issue_id IS NULL OR EXISTS (SELECT 1 FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=a.organization_id AND i.issue_id=a.issue_id AND (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$5 AND tm.active)))) ORDER BY a.activity_id LIMIT $6")
+    let rows = lenso_postgres_kit::sqlx::query("SELECT a.activity_id,a.organization_id,a.project_id,a.issue_id,a.actor_subject,a.operation,a.entity_kind,a.entity_id,a.revision,a.occurred_at FROM project_activity a WHERE a.organization_id=$1 AND a.activity_id>$2 AND (a.project_id IS NOT NULL OR a.issue_id IS NOT NULL) AND ($3::text IS NULL OR a.project_id=$3) AND ($4::text IS NULL OR a.issue_id=$4) AND (a.project_id IS NULL OR NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams t ON t.organization_id=pt.organization_id AND t.team_id=pt.team_id WHERE pt.organization_id=a.organization_id AND pt.project_id=a.project_id AND t.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$5 AND tm.active))) AND (a.issue_id IS NULL OR EXISTS (SELECT 1 FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=a.organization_id AND i.issue_id=a.issue_id AND (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$5 AND tm.active)))) ORDER BY a.activity_id LIMIT $6")
         .bind(&request.organization_id).bind(after).bind(&request.project_id).bind(&request.issue_id).bind(actor).bind(request.limit + 1).fetch_all(postgres.pool()).await.map_err(|error| runtime("list activity", error))?;
     let mut items = Vec::new();
     let mut next_cursor = request.after.clone();
@@ -1716,7 +1725,7 @@ async fn load_comment_value(
     organization_id: &str,
     comment_id: &str,
 ) -> Result<Option<Value>, StorageError> {
-    let row = sqlx::query("SELECT comment_id,organization_id,issue_id,author_subject,body,deleted,revision,created_at,updated_at FROM comments WHERE organization_id=$1 AND comment_id=$2")
+    let row = lenso_postgres_kit::sqlx::query("SELECT comment_id,organization_id,issue_id,author_subject,body,deleted,revision,created_at,updated_at FROM comments WHERE organization_id=$1 AND comment_id=$2")
         .bind(organization_id).bind(comment_id).fetch_optional(&mut *connection).await.map_err(|error| runtime("load comment", error))?;
     row.map(|row| {
         let created_at: OffsetDateTime = row.try_get("created_at").map_err(|error| runtime("decode comment", error))?;
@@ -1743,7 +1752,7 @@ pub(crate) async fn add_comment(
         Some(false) => return Err(DomainFailure::PrivateTeam.into()),
         None => return Err(DomainFailure::NotFound.into()),
     }
-    let project_id: String = sqlx::query_scalar(
+    let project_id: String = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT project_id FROM issues WHERE organization_id=$1 AND issue_id=$2",
     )
     .bind(&request.organization_id)
@@ -1776,7 +1785,7 @@ pub(crate) async fn add_comment(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let inserted = sqlx::query("INSERT INTO comments(comment_id,organization_id,issue_id,author_subject,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
+    let inserted = lenso_postgres_kit::sqlx::query("INSERT INTO comments(comment_id,organization_id,issue_id,author_subject,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
         .bind(&request.comment_id).bind(&request.organization_id).bind(&request.issue_id).bind(actor).bind(request.body.trim()).execute(&mut *tx).await.map_err(|error| runtime("insert comment", error))?;
     if inserted.rows_affected() != 1 {
         return Err(DomainFailure::IdentifierConflict.into());
@@ -1819,7 +1828,7 @@ pub(crate) async fn update_comment(
     actor: &str,
     request: &collaboration::UpdateCommentRequest,
 ) -> Result<collaboration::UpdateCommentResponse, StorageError> {
-    let row = sqlx::query("SELECT c.issue_id,i.project_id,c.author_subject FROM comments c JOIN issues i ON i.organization_id=c.organization_id AND i.issue_id=c.issue_id WHERE c.organization_id=$1 AND c.comment_id=$2")
+    let row = lenso_postgres_kit::sqlx::query("SELECT c.issue_id,i.project_id,c.author_subject FROM comments c JOIN issues i ON i.organization_id=c.organization_id AND i.issue_id=c.issue_id WHERE c.organization_id=$1 AND c.comment_id=$2")
         .bind(&request.organization_id).bind(&request.comment_id).fetch_optional(postgres.pool()).await.map_err(|error| runtime("read comment for update",error))?.ok_or(DomainFailure::NotFound)?;
     let issue_id: String = row
         .try_get("issue_id")
@@ -1864,7 +1873,7 @@ pub(crate) async fn update_comment(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let revision:Option<i64>=sqlx::query_scalar("UPDATE comments SET body=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND comment_id=$2 AND revision=$3 AND NOT deleted RETURNING revision").bind(&request.organization_id).bind(&request.comment_id).bind(expected).bind(request.body.trim()).fetch_optional(&mut *tx).await.map_err(|error|runtime("update comment",error))?;
+    let revision:Option<i64>=lenso_postgres_kit::sqlx::query_scalar("UPDATE comments SET body=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND comment_id=$2 AND revision=$3 AND NOT deleted RETURNING revision").bind(&request.organization_id).bind(&request.comment_id).bind(expected).bind(request.body.trim()).fetch_optional(&mut *tx).await.map_err(|error|runtime("update comment",error))?;
     let Some(revision) = revision else {
         return Err(DomainFailure::RevisionConflict.into());
     };
@@ -1906,7 +1915,7 @@ pub(crate) async fn delete_comment(
     actor: &str,
     request: &collaboration::DeleteCommentRequest,
 ) -> Result<collaboration::DeleteCommentResponse, StorageError> {
-    let row=sqlx::query("SELECT c.issue_id,i.project_id,c.author_subject FROM comments c JOIN issues i ON i.organization_id=c.organization_id AND i.issue_id=c.issue_id WHERE c.organization_id=$1 AND c.comment_id=$2").bind(&request.organization_id).bind(&request.comment_id).fetch_optional(postgres.pool()).await.map_err(|error|runtime("read comment for delete",error))?.ok_or(DomainFailure::NotFound)?;
+    let row=lenso_postgres_kit::sqlx::query("SELECT c.issue_id,i.project_id,c.author_subject FROM comments c JOIN issues i ON i.organization_id=c.organization_id AND i.issue_id=c.issue_id WHERE c.organization_id=$1 AND c.comment_id=$2").bind(&request.organization_id).bind(&request.comment_id).fetch_optional(postgres.pool()).await.map_err(|error|runtime("read comment for delete",error))?.ok_or(DomainFailure::NotFound)?;
     let issue_id: String = row
         .try_get("issue_id")
         .map_err(|error| runtime("decode comment issue", error))?;
@@ -1950,7 +1959,7 @@ pub(crate) async fn delete_comment(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let revision:Option<i64>=sqlx::query_scalar("UPDATE comments SET body='',deleted=TRUE,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND comment_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.comment_id).bind(expected).fetch_optional(&mut *tx).await.map_err(|error|runtime("delete comment",error))?;
+    let revision:Option<i64>=lenso_postgres_kit::sqlx::query_scalar("UPDATE comments SET body='',deleted=TRUE,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND comment_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.comment_id).bind(expected).fetch_optional(&mut *tx).await.map_err(|error|runtime("delete comment",error))?;
     let Some(revision) = revision else {
         return Err(DomainFailure::RevisionConflict.into());
     };
@@ -2004,7 +2013,7 @@ pub(crate) async fn list_comments(
         None => return Err(DomainFailure::NotFound.into()),
     }
     let after = parse_cursor(&request.after)?;
-    let rows=sqlx::query("SELECT comment_id,row_seq FROM comments WHERE organization_id=$1 AND issue_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.issue_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list comments",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT comment_id,row_seq FROM comments WHERE organization_id=$1 AND issue_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.issue_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list comments",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -2097,7 +2106,7 @@ pub(crate) async fn create_project_update(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let row=sqlx::query("INSERT INTO project_updates(update_id,organization_id,project_id,author_subject,body,health) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING created_at").bind(&request.update_id).bind(&request.organization_id).bind(&request.project_id).bind(actor).bind(request.body.trim()).bind(health_name(&request.health)).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert project update",error))?;
+    let row=lenso_postgres_kit::sqlx::query("INSERT INTO project_updates(update_id,organization_id,project_id,author_subject,body,health) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING created_at").bind(&request.update_id).bind(&request.organization_id).bind(&request.project_id).bind(actor).bind(request.body.trim()).bind(health_name(&request.health)).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert project update",error))?;
     let Some(row) = row else {
         return Err(DomainFailure::IdentifierConflict.into());
     };
@@ -2158,7 +2167,7 @@ pub(crate) async fn list_project_updates(
         None => return Err(DomainFailure::NotFound.into()),
     }
     let after = parse_cursor(&request.after)?;
-    let rows=sqlx::query("SELECT update_id,organization_id,project_id,author_subject,body,health,row_seq,created_at FROM project_updates WHERE organization_id=$1 AND project_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.project_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list project updates",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT update_id,organization_id,project_id,author_subject,body,health,row_seq,created_at FROM project_updates WHERE organization_id=$1 AND project_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.project_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list project updates",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -2201,7 +2210,7 @@ pub(crate) async fn add_issue_relation(
             None => return Err(DomainFailure::NotFound.into()),
         }
     }
-    let project_id: String = sqlx::query_scalar(
+    let project_id: String = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT project_id FROM issues WHERE organization_id=$1 AND issue_id=$2",
     )
     .bind(&request.organization_id)
@@ -2234,7 +2243,7 @@ pub(crate) async fn add_issue_relation(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let inserted=sqlx::query("INSERT INTO issue_relations(relation_id,organization_id,issue_id,related_issue_id,kind) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(&request.relation_id).bind(&request.organization_id).bind(&request.issue_id).bind(&request.related_issue_id).bind(relation_kind_name(&request.kind)).execute(&mut *tx).await.map_err(|error|runtime("insert issue relation",error))?;
+    let inserted=lenso_postgres_kit::sqlx::query("INSERT INTO issue_relations(relation_id,organization_id,issue_id,related_issue_id,kind) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(&request.relation_id).bind(&request.organization_id).bind(&request.issue_id).bind(&request.related_issue_id).bind(relation_kind_name(&request.kind)).execute(&mut *tx).await.map_err(|error|runtime("insert issue relation",error))?;
     if inserted.rows_affected() != 1 {
         return Err(DomainFailure::RelationConflict.into());
     }
@@ -2279,7 +2288,7 @@ pub(crate) async fn remove_issue_relation(
     actor: &str,
     request: &collaboration::RemoveIssueRelationRequest,
 ) -> Result<collaboration::RemoveIssueRelationResponse, StorageError> {
-    let row=sqlx::query("SELECT r.issue_id,r.related_issue_id,r.kind,i.project_id FROM issue_relations r JOIN issues i ON i.organization_id=r.organization_id AND i.issue_id=r.issue_id WHERE r.organization_id=$1 AND r.relation_id=$2").bind(&request.organization_id).bind(&request.relation_id).fetch_optional(postgres.pool()).await.map_err(|error|runtime("read issue relation",error))?.ok_or(DomainFailure::NotFound)?;
+    let row=lenso_postgres_kit::sqlx::query("SELECT r.issue_id,r.related_issue_id,r.kind,i.project_id FROM issue_relations r JOIN issues i ON i.organization_id=r.organization_id AND i.issue_id=r.issue_id WHERE r.organization_id=$1 AND r.relation_id=$2").bind(&request.organization_id).bind(&request.relation_id).fetch_optional(postgres.pool()).await.map_err(|error|runtime("read issue relation",error))?.ok_or(DomainFailure::NotFound)?;
     let issue_id: String = row
         .try_get("issue_id")
         .map_err(|error| runtime("decode issue relation", error))?;
@@ -2322,7 +2331,7 @@ pub(crate) async fn remove_issue_relation(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    sqlx::query(
+    lenso_postgres_kit::sqlx::query(
         "UPDATE issue_relations SET active=FALSE WHERE organization_id=$1 AND relation_id=$2",
     )
     .bind(&request.organization_id)
@@ -2364,7 +2373,7 @@ async fn load_team_value(
     organization_id: &str,
     team_id: &str,
 ) -> Result<Option<Value>, StorageError> {
-    let row=sqlx::query("SELECT team_id,organization_id,team_key,name,description,private,default_workflow_state_id,revision,created_at,updated_at FROM teams WHERE organization_id=$1 AND team_id=$2").bind(organization_id).bind(team_id).fetch_optional(&mut *connection).await.map_err(|error|runtime("load team",error))?;
+    let row=lenso_postgres_kit::sqlx::query("SELECT team_id,organization_id,team_key,name,description,private,default_workflow_state_id,revision,created_at,updated_at FROM teams WHERE organization_id=$1 AND team_id=$2").bind(organization_id).bind(team_id).fetch_optional(&mut *connection).await.map_err(|error|runtime("load team",error))?;
     row.map(|row|{let created_at:OffsetDateTime=row.try_get("created_at").map_err(|error|runtime("decode team",error))?;let updated_at:OffsetDateTime=row.try_get("updated_at").map_err(|error|runtime("decode team",error))?;Ok(json!({"team_id":team_id,"organization_id":organization_id,"key":row.try_get::<String,_>("team_key").map_err(|error|runtime("decode team",error))?,"name":row.try_get::<String,_>("name").map_err(|error|runtime("decode team",error))?,"description":row.try_get::<Option<String>,_>("description").map_err(|error|runtime("decode team",error))?,"private":row.try_get::<bool,_>("private").map_err(|error|runtime("decode team",error))?,"default_workflow_state_id":row.try_get::<String,_>("default_workflow_state_id").map_err(|error|runtime("decode team",error))?,"revision":row.try_get::<i64,_>("revision").map_err(|error|runtime("decode team",error))?.to_string(),"created_at":format_time(created_at)?,"updated_at":format_time(updated_at)?}))}).transpose()
 }
 
@@ -2412,7 +2421,7 @@ async fn insert_default_workflow_states(
         ),
     ];
     for (state_id, name, category, color, position) in defaults {
-        sqlx::query("INSERT INTO workflow_states(state_id,organization_id,team_id,name,category,color,position) VALUES($1,$2,$3,$4,$5,$6,$7)")
+        lenso_postgres_kit::sqlx::query("INSERT INTO workflow_states(state_id,organization_id,team_id,name,category,color,position) VALUES($1,$2,$3,$4,$5,$6,$7)")
             .bind(state_id)
             .bind(organization_id)
             .bind(team_id)
@@ -2433,13 +2442,14 @@ pub(crate) async fn put_team(
     actor: &str,
     request: &admin::PutTeamRequest,
 ) -> Result<admin::PutTeamResponse, StorageError> {
-    let key_owner: Option<String> =
-        sqlx::query_scalar("SELECT team_id FROM teams WHERE organization_id=$1 AND team_key=$2")
-            .bind(&request.organization_id)
-            .bind(&request.key)
-            .fetch_optional(postgres.pool())
-            .await
-            .map_err(|error| runtime("validate team key", error))?;
+    let key_owner: Option<String> = lenso_postgres_kit::sqlx::query_scalar(
+        "SELECT team_id FROM teams WHERE organization_id=$1 AND team_key=$2",
+    )
+    .bind(&request.organization_id)
+    .bind(&request.key)
+    .fetch_optional(postgres.pool())
+    .await
+    .map_err(|error| runtime("validate team key", error))?;
     if key_owner.as_deref().is_some_and(|id| id != request.team_id) {
         return Err(DomainFailure::KeyConflict.into());
     }
@@ -2474,7 +2484,7 @@ pub(crate) async fn put_team(
             .default_workflow_state_id
             .as_deref()
             .ok_or(DomainFailure::DefaultStateInvalid)?;
-        let valid: Option<String> = sqlx::query_scalar("SELECT state_id FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND category='unstarted' AND NOT archived FOR KEY SHARE")
+        let valid: Option<String> = lenso_postgres_kit::sqlx::query_scalar("SELECT state_id FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND category='unstarted' AND NOT archived FOR KEY SHARE")
             .bind(&request.organization_id)
             .bind(&request.team_id)
             .bind(state_id)
@@ -2485,13 +2495,13 @@ pub(crate) async fn put_team(
             return Err(DomainFailure::DefaultStateInvalid.into());
         }
         let expected = parse_revision(expected)?;
-        sqlx::query_scalar("UPDATE teams SET team_key=$4,name=$5,description=$6,private=$7,default_workflow_state_id=$8,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND team_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(expected).bind(&request.key).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(request.private).bind(state_id).fetch_optional(&mut *tx).await.map_err(|error|runtime("update team",error))?.ok_or(DomainFailure::RevisionConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("UPDATE teams SET team_key=$4,name=$5,description=$6,private=$7,default_workflow_state_id=$8,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND team_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(expected).bind(&request.key).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(request.private).bind(state_id).fetch_optional(&mut *tx).await.map_err(|error|runtime("update team",error))?.ok_or(DomainFailure::RevisionConflict)?
     } else {
         if request.default_workflow_state_id.is_some() {
             return Err(DomainFailure::DefaultStateInvalid.into());
         }
         let default_state_id = fresh_catalog_id("workflow_state");
-        let inserted:Option<i64>=sqlx::query_scalar("INSERT INTO teams(team_id,organization_id,team_key,name,description,private,default_workflow_state_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.team_id).bind(&request.organization_id).bind(&request.key).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(request.private).bind(&default_state_id).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert team",error))?;
+        let inserted:Option<i64>=lenso_postgres_kit::sqlx::query_scalar("INSERT INTO teams(team_id,organization_id,team_key,name,description,private,default_workflow_state_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.team_id).bind(&request.organization_id).bind(&request.key).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(request.private).bind(&default_state_id).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert team",error))?;
         let revision = inserted.ok_or(DomainFailure::KeyConflict)?;
         insert_default_workflow_states(
             &mut tx,
@@ -2539,7 +2549,7 @@ pub(crate) async fn list_teams(
     request: &admin::ListTeamsRequest,
 ) -> Result<admin::ListTeamsResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
-    let rows=sqlx::query("SELECT team_id,row_seq FROM teams WHERE organization_id=$1 AND row_seq>$2 ORDER BY row_seq LIMIT $3").bind(&request.organization_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list teams",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT team_id,row_seq FROM teams WHERE organization_id=$1 AND row_seq>$2 ORDER BY row_seq LIMIT $3").bind(&request.organization_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list teams",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -2580,7 +2590,7 @@ pub(crate) async fn set_team_member(
     actor: &str,
     request: &admin::SetTeamMemberRequest,
 ) -> Result<admin::SetTeamMemberResponse, StorageError> {
-    let exists: bool = sqlx::query_scalar(
+    let exists: bool = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2)",
     )
     .bind(&request.organization_id)
@@ -2616,15 +2626,15 @@ pub(crate) async fn set_team_member(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let prior:Option<(bool,i64)>=sqlx::query_as("SELECT active,revision FROM team_members WHERE organization_id=$1 AND team_id=$2 AND subject=$3 FOR UPDATE").bind(&request.organization_id).bind(&request.team_id).bind(&request.subject).fetch_optional(&mut *tx).await.map_err(|error|runtime("read team member",error))?;
+    let prior:Option<(bool,i64)>=lenso_postgres_kit::sqlx::query_as("SELECT active,revision FROM team_members WHERE organization_id=$1 AND team_id=$2 AND subject=$3 FOR UPDATE").bind(&request.organization_id).bind(&request.team_id).bind(&request.subject).fetch_optional(&mut *tx).await.map_err(|error|runtime("read team member",error))?;
     let (changed, revision) = match prior {
         Some((active, revision)) if active == request.active => (false, revision),
         Some((_active, _)) => {
-            let revision:i64=sqlx::query_scalar("UPDATE team_members SET active=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND team_id=$2 AND subject=$3 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(&request.subject).bind(request.active).fetch_one(&mut *tx).await.map_err(|error|runtime("update team member",error))?;
+            let revision:i64=lenso_postgres_kit::sqlx::query_scalar("UPDATE team_members SET active=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND team_id=$2 AND subject=$3 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(&request.subject).bind(request.active).fetch_one(&mut *tx).await.map_err(|error|runtime("update team member",error))?;
             (true, revision)
         }
         None => {
-            sqlx::query("INSERT INTO team_members(organization_id,team_id,subject,active) VALUES($1,$2,$3,$4)").bind(&request.organization_id).bind(&request.team_id).bind(&request.subject).bind(request.active).execute(&mut *tx).await.map_err(|error|runtime("insert team member",error))?;
+            lenso_postgres_kit::sqlx::query("INSERT INTO team_members(organization_id,team_id,subject,active) VALUES($1,$2,$3,$4)").bind(&request.organization_id).bind(&request.team_id).bind(&request.subject).bind(request.active).execute(&mut *tx).await.map_err(|error|runtime("insert team member",error))?;
             (true, 1)
         }
     };
@@ -2687,7 +2697,7 @@ async fn load_workflow_state_value(
     organization_id: &str,
     state_id: &str,
 ) -> Result<Option<Value>, StorageError> {
-    let row = sqlx::query("SELECT state_id,organization_id,team_id,name,category,color,position,archived,archived_at,revision FROM workflow_states WHERE organization_id=$1 AND state_id=$2")
+    let row = lenso_postgres_kit::sqlx::query("SELECT state_id,organization_id,team_id,name,category,color,position,archived,archived_at,revision FROM workflow_states WHERE organization_id=$1 AND state_id=$2")
         .bind(organization_id)
         .bind(state_id)
         .fetch_optional(&mut *connection)
@@ -2718,7 +2728,7 @@ async fn load_project_status_value(
     organization_id: &str,
     status_id: &str,
 ) -> Result<Option<Value>, StorageError> {
-    let row = sqlx::query("SELECT status_id,organization_id,name,category,color,position,is_default,archived,archived_at,revision FROM project_statuses WHERE organization_id=$1 AND status_id=$2")
+    let row = lenso_postgres_kit::sqlx::query("SELECT status_id,organization_id,name,category,color,position,is_default,archived,archived_at,revision FROM project_statuses WHERE organization_id=$1 AND status_id=$2")
         .bind(organization_id)
         .bind(status_id)
         .fetch_optional(&mut *connection)
@@ -2750,7 +2760,7 @@ pub(crate) async fn put_workflow_state(
     actor: &str,
     request: &admin::PutWorkflowStateRequest,
 ) -> Result<admin::PutWorkflowStateResponse, StorageError> {
-    let team: bool = sqlx::query_scalar(
+    let team: bool = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2)",
     )
     .bind(&request.organization_id)
@@ -2787,7 +2797,7 @@ pub(crate) async fn put_workflow_state(
         CommandStart::New => {}
     }
     let revision: i64 = if let Some(expected) = &request.expected_revision {
-        let existing_category: String = sqlx::query_scalar("SELECT category FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 FOR UPDATE")
+        let existing_category: String = lenso_postgres_kit::sqlx::query_scalar("SELECT category FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 FOR UPDATE")
             .bind(&request.organization_id)
             .bind(&request.team_id)
             .bind(&request.state_id)
@@ -2798,9 +2808,9 @@ pub(crate) async fn put_workflow_state(
         if existing_category != workflow_category(&request.category) {
             return Err(DomainFailure::InvalidRequest.into());
         }
-        sqlx::query_scalar("UPDATE workflow_states SET name=$5,category=$6,color=$7,position=$8,revision=revision+1 WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND revision=$4 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(&request.state_id).bind(parse_revision(expected)?).bind(request.name.trim()).bind(workflow_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("update workflow",error))?.ok_or(DomainFailure::RevisionConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("UPDATE workflow_states SET name=$5,category=$6,color=$7,position=$8,revision=revision+1 WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND revision=$4 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(&request.state_id).bind(parse_revision(expected)?).bind(request.name.trim()).bind(workflow_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("update workflow",error))?.ok_or(DomainFailure::RevisionConflict)?
     } else {
-        sqlx::query_scalar("INSERT INTO workflow_states(state_id,organization_id,team_id,name,category,color,position) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.state_id).bind(&request.organization_id).bind(&request.team_id).bind(request.name.trim()).bind(workflow_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert workflow",error))?.ok_or(DomainFailure::KeyConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("INSERT INTO workflow_states(state_id,organization_id,team_id,name,category,color,position) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.state_id).bind(&request.organization_id).bind(&request.team_id).bind(request.name.trim()).bind(workflow_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert workflow",error))?.ok_or(DomainFailure::KeyConflict)?
     };
     let response = replay(
         load_workflow_state_value(&mut tx, &request.organization_id, &request.state_id)
@@ -2838,7 +2848,7 @@ pub(crate) async fn get_workflow_state(
     postgres: &OwnedPostgres,
     request: &admin::GetWorkflowStateRequest,
 ) -> Result<admin::GetWorkflowStateResponse, StorageError> {
-    let owned: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3)")
+    let owned: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3)")
         .bind(&request.organization_id)
         .bind(&request.team_id)
         .bind(&request.state_id)
@@ -2913,7 +2923,7 @@ pub(crate) async fn reorder_workflow_states(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let current = sqlx::query("SELECT state_id,revision FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND NOT archived ORDER BY state_id FOR UPDATE")
+    let current = lenso_postgres_kit::sqlx::query("SELECT state_id,revision FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND NOT archived ORDER BY state_id FOR UPDATE")
         .bind(&request.organization_id)
         .bind(&request.team_id)
         .fetch_all(&mut *tx)
@@ -2939,7 +2949,7 @@ pub(crate) async fn reorder_workflow_states(
         }
     }
     for item in &request.items {
-        let updated: Option<i64> = sqlx::query_scalar("UPDATE workflow_states SET position=$5,revision=revision+1 WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND revision=$4 AND NOT archived RETURNING revision")
+        let updated: Option<i64> = lenso_postgres_kit::sqlx::query_scalar("UPDATE workflow_states SET position=$5,revision=revision+1 WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND revision=$4 AND NOT archived RETURNING revision")
             .bind(&request.organization_id)
             .bind(&request.team_id)
             .bind(&item.state_id)
@@ -2995,7 +3005,7 @@ pub(crate) async fn list_workflow_states(
     request: &admin::ListWorkflowStatesRequest,
 ) -> Result<admin::ListWorkflowStatesResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
-    let rows=sqlx::query("SELECT state_id,row_seq FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.team_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list workflow states",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT state_id,row_seq FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.team_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list workflow states",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -3061,7 +3071,7 @@ pub(crate) async fn archive_workflow_state(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let team_id: String = sqlx::query_scalar(
+    let team_id: String = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT team_id FROM workflow_states WHERE organization_id=$1 AND state_id=$2 FOR UPDATE",
     )
     .bind(&request.organization_id)
@@ -3071,7 +3081,7 @@ pub(crate) async fn archive_workflow_state(
     .map_err(|error| runtime("lock workflow state", error))?
     .ok_or(DomainFailure::NotFound)?;
     if request.archived {
-        let is_default: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2 AND default_workflow_state_id=$3)")
+        let is_default: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2 AND default_workflow_state_id=$3)")
             .bind(&request.organization_id)
             .bind(&team_id)
             .bind(&request.state_id)
@@ -3081,7 +3091,7 @@ pub(crate) async fn archive_workflow_state(
         if is_default {
             return Err(DomainFailure::DefaultStateInvalid.into());
         }
-        let referenced: bool = sqlx::query_scalar(
+        let referenced: bool = lenso_postgres_kit::sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM issues WHERE organization_id=$1 AND workflow_state_id=$2)",
         )
         .bind(&request.organization_id)
@@ -3093,7 +3103,7 @@ pub(crate) async fn archive_workflow_state(
             return Err(DomainFailure::ActiveReference.into());
         }
     }
-    let revision: i64 = sqlx::query_scalar("UPDATE workflow_states SET archived=$4,archived_at=CASE WHEN $4 THEN COALESCE(archived_at,transaction_timestamp()) ELSE NULL END,revision=revision+1 WHERE organization_id=$1 AND state_id=$2 AND revision=$3 RETURNING revision")
+    let revision: i64 = lenso_postgres_kit::sqlx::query_scalar("UPDATE workflow_states SET archived=$4,archived_at=CASE WHEN $4 THEN COALESCE(archived_at,transaction_timestamp()) ELSE NULL END,revision=revision+1 WHERE organization_id=$1 AND state_id=$2 AND revision=$3 RETURNING revision")
         .bind(&request.organization_id)
         .bind(&request.state_id)
         .bind(expected)
@@ -3166,7 +3176,7 @@ pub(crate) async fn delete_workflow_state(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let row = sqlx::query("SELECT archived,revision FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 FOR UPDATE")
+    let row = lenso_postgres_kit::sqlx::query("SELECT archived,revision FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 FOR UPDATE")
         .bind(&request.organization_id)
         .bind(&request.team_id)
         .bind(&request.state_id)
@@ -3183,7 +3193,7 @@ pub(crate) async fn delete_workflow_state(
     if revision != expected {
         return Err(DomainFailure::RevisionConflict.into());
     }
-    let is_default: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2 AND default_workflow_state_id=$3)")
+    let is_default: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2 AND default_workflow_state_id=$3)")
         .bind(&request.organization_id)
         .bind(&request.team_id)
         .bind(&request.state_id)
@@ -3193,7 +3203,7 @@ pub(crate) async fn delete_workflow_state(
     if is_default {
         return Err(DomainFailure::DefaultStateInvalid.into());
     }
-    let referenced: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM issues WHERE organization_id=$1 AND team_id=$2 AND workflow_state_id=$3)")
+    let referenced: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM issues WHERE organization_id=$1 AND team_id=$2 AND workflow_state_id=$3)")
         .bind(&request.organization_id)
         .bind(&request.team_id)
         .bind(&request.state_id)
@@ -3206,7 +3216,7 @@ pub(crate) async fn delete_workflow_state(
     if !archived {
         return Err(DomainFailure::InvalidRequest.into());
     }
-    let deleted = sqlx::query("DELETE FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND revision=$4")
+    let deleted = lenso_postgres_kit::sqlx::query("DELETE FROM workflow_states WHERE organization_id=$1 AND team_id=$2 AND state_id=$3 AND revision=$4")
         .bind(&request.organization_id)
         .bind(&request.team_id)
         .bind(&request.state_id)
@@ -3283,7 +3293,7 @@ pub(crate) async fn put_project_status(
     }
     ensure_project_status_catalog(&mut tx, &request.organization_id).await?;
     let revision: i64 = if let Some(expected) = &request.expected_revision {
-        let existing_category: String = sqlx::query_scalar("SELECT category FROM project_statuses WHERE organization_id=$1 AND status_id=$2 FOR UPDATE")
+        let existing_category: String = lenso_postgres_kit::sqlx::query_scalar("SELECT category FROM project_statuses WHERE organization_id=$1 AND status_id=$2 FOR UPDATE")
             .bind(&request.organization_id)
             .bind(&request.status_id)
             .fetch_optional(&mut *tx)
@@ -3293,9 +3303,9 @@ pub(crate) async fn put_project_status(
         if existing_category != project_status_category(&request.category) {
             return Err(DomainFailure::InvalidRequest.into());
         }
-        sqlx::query_scalar("UPDATE project_statuses SET name=$4,category=$5,color=$6,position=$7,revision=revision+1 WHERE organization_id=$1 AND status_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.status_id).bind(parse_revision(expected)?).bind(request.name.trim()).bind(project_status_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("update project status",error))?.ok_or(DomainFailure::RevisionConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("UPDATE project_statuses SET name=$4,category=$5,color=$6,position=$7,revision=revision+1 WHERE organization_id=$1 AND status_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.status_id).bind(parse_revision(expected)?).bind(request.name.trim()).bind(project_status_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("update project status",error))?.ok_or(DomainFailure::RevisionConflict)?
     } else {
-        sqlx::query_scalar("INSERT INTO project_statuses(status_id,organization_id,name,category,color,position) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.status_id).bind(&request.organization_id).bind(request.name.trim()).bind(project_status_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert project status",error))?.ok_or(DomainFailure::KeyConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("INSERT INTO project_statuses(status_id,organization_id,name,category,color,position) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.status_id).bind(&request.organization_id).bind(request.name.trim()).bind(project_status_category(&request.category)).bind(&request.color).bind(request.position).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert project status",error))?.ok_or(DomainFailure::KeyConflict)?
     };
     let response = replay(
         load_project_status_value(&mut tx, &request.organization_id, &request.status_id)
@@ -3404,7 +3414,7 @@ pub(crate) async fn reorder_project_statuses(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let current = sqlx::query("SELECT status_id,revision FROM project_statuses WHERE organization_id=$1 AND NOT archived ORDER BY status_id FOR UPDATE")
+    let current = lenso_postgres_kit::sqlx::query("SELECT status_id,revision FROM project_statuses WHERE organization_id=$1 AND NOT archived ORDER BY status_id FOR UPDATE")
         .bind(&request.organization_id)
         .fetch_all(&mut *tx)
         .await
@@ -3429,7 +3439,7 @@ pub(crate) async fn reorder_project_statuses(
         }
     }
     for item in &request.items {
-        let updated: Option<i64> = sqlx::query_scalar("UPDATE project_statuses SET position=$4,revision=revision+1 WHERE organization_id=$1 AND status_id=$2 AND revision=$3 AND NOT archived RETURNING revision")
+        let updated: Option<i64> = lenso_postgres_kit::sqlx::query_scalar("UPDATE project_statuses SET position=$4,revision=revision+1 WHERE organization_id=$1 AND status_id=$2 AND revision=$3 AND NOT archived RETURNING revision")
             .bind(&request.organization_id)
             .bind(&item.status_id)
             .bind(parse_revision(&item.expected_revision)?)
@@ -3494,7 +3504,7 @@ pub(crate) async fn list_project_statuses(
         .commit()
         .await
         .map_err(|error| runtime("commit project status bootstrap", error))?;
-    let rows=sqlx::query("SELECT status_id,row_seq FROM project_statuses WHERE organization_id=$1 AND row_seq>$2 ORDER BY row_seq LIMIT $3").bind(&request.organization_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list project statuses",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT status_id,row_seq FROM project_statuses WHERE organization_id=$1 AND row_seq>$2 ORDER BY row_seq LIMIT $3").bind(&request.organization_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list project statuses",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -3564,7 +3574,7 @@ pub(crate) async fn archive_project_status(
         CommandStart::New => {}
     }
     ensure_project_status_catalog(&mut tx, &request.organization_id).await?;
-    let is_default: bool = sqlx::query_scalar("SELECT is_default FROM project_statuses WHERE organization_id=$1 AND status_id=$2 FOR UPDATE")
+    let is_default: bool = lenso_postgres_kit::sqlx::query_scalar("SELECT is_default FROM project_statuses WHERE organization_id=$1 AND status_id=$2 FOR UPDATE")
         .bind(&request.organization_id)
         .bind(&request.status_id)
         .fetch_optional(&mut *tx)
@@ -3575,7 +3585,7 @@ pub(crate) async fn archive_project_status(
         if is_default {
             return Err(DomainFailure::DefaultStateInvalid.into());
         }
-        let referenced: bool = sqlx::query_scalar(
+        let referenced: bool = lenso_postgres_kit::sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE organization_id=$1 AND status_id=$2)",
         )
         .bind(&request.organization_id)
@@ -3587,7 +3597,7 @@ pub(crate) async fn archive_project_status(
             return Err(DomainFailure::ActiveReference.into());
         }
     }
-    let revision: i64 = sqlx::query_scalar("UPDATE project_statuses SET archived=$4,archived_at=CASE WHEN $4 THEN COALESCE(archived_at,transaction_timestamp()) ELSE NULL END,revision=revision+1 WHERE organization_id=$1 AND status_id=$2 AND revision=$3 RETURNING revision")
+    let revision: i64 = lenso_postgres_kit::sqlx::query_scalar("UPDATE project_statuses SET archived=$4,archived_at=CASE WHEN $4 THEN COALESCE(archived_at,transaction_timestamp()) ELSE NULL END,revision=revision+1 WHERE organization_id=$1 AND status_id=$2 AND revision=$3 RETURNING revision")
         .bind(&request.organization_id)
         .bind(&request.status_id)
         .bind(expected)
@@ -3661,7 +3671,7 @@ pub(crate) async fn delete_project_status(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let row = sqlx::query("SELECT is_default,archived,revision FROM project_statuses WHERE organization_id=$1 AND status_id=$2 FOR UPDATE")
+    let row = lenso_postgres_kit::sqlx::query("SELECT is_default,archived,revision FROM project_statuses WHERE organization_id=$1 AND status_id=$2 FOR UPDATE")
         .bind(&request.organization_id)
         .bind(&request.status_id)
         .fetch_optional(&mut *tx)
@@ -3683,7 +3693,7 @@ pub(crate) async fn delete_project_status(
     if is_default {
         return Err(DomainFailure::DefaultStateInvalid.into());
     }
-    let referenced: bool = sqlx::query_scalar(
+    let referenced: bool = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM projects WHERE organization_id=$1 AND status_id=$2)",
     )
     .bind(&request.organization_id)
@@ -3697,7 +3707,7 @@ pub(crate) async fn delete_project_status(
     if !archived {
         return Err(DomainFailure::InvalidRequest.into());
     }
-    let deleted = sqlx::query(
+    let deleted = lenso_postgres_kit::sqlx::query(
         "DELETE FROM project_statuses WHERE organization_id=$1 AND status_id=$2 AND revision=$3",
     )
     .bind(&request.organization_id)
@@ -3748,7 +3758,7 @@ pub(crate) async fn put_label(
     request: &admin::PutLabelRequest,
 ) -> Result<admin::PutLabelResponse, StorageError> {
     if let Some(team_id) = &request.team_id {
-        let exists: bool = sqlx::query_scalar(
+        let exists: bool = lenso_postgres_kit::sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2)",
         )
         .bind(&request.organization_id)
@@ -3786,9 +3796,9 @@ pub(crate) async fn put_label(
         CommandStart::New => {}
     }
     let revision: i64 = if let Some(expected) = &request.expected_revision {
-        sqlx::query_scalar("UPDATE labels SET team_id=$4,name=$5,description=$6,color=$7,revision=revision+1 WHERE organization_id=$1 AND label_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.label_id).bind(parse_revision(expected)?).bind(&request.team_id).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(&request.color).fetch_optional(&mut *tx).await.map_err(|error|runtime("update label",error))?.ok_or(DomainFailure::RevisionConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("UPDATE labels SET team_id=$4,name=$5,description=$6,color=$7,revision=revision+1 WHERE organization_id=$1 AND label_id=$2 AND revision=$3 RETURNING revision").bind(&request.organization_id).bind(&request.label_id).bind(parse_revision(expected)?).bind(&request.team_id).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(&request.color).fetch_optional(&mut *tx).await.map_err(|error|runtime("update label",error))?.ok_or(DomainFailure::RevisionConflict)?
     } else {
-        sqlx::query_scalar("INSERT INTO labels(label_id,organization_id,team_id,name,description,color) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.label_id).bind(&request.organization_id).bind(&request.team_id).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(&request.color).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert label",error))?.ok_or(DomainFailure::KeyConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("INSERT INTO labels(label_id,organization_id,team_id,name,description,color) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.label_id).bind(&request.organization_id).bind(&request.team_id).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(&request.color).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert label",error))?.ok_or(DomainFailure::KeyConflict)?
     };
     let response = admin::PutLabelResponse {
         label_id: request.label_id.clone(),
@@ -3835,7 +3845,7 @@ pub(crate) async fn list_labels(
     request: &admin::ListLabelsRequest,
 ) -> Result<admin::ListLabelsResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
-    let rows=sqlx::query("SELECT label_id,organization_id,team_id,name,description,color,revision,row_seq FROM labels WHERE organization_id=$1 AND row_seq>$2 AND ($3::text IS NULL OR team_id IS NULL OR team_id=$3) ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(after).bind(&request.team_id).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list labels",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT label_id,organization_id,team_id,name,description,color,revision,row_seq FROM labels WHERE organization_id=$1 AND row_seq>$2 AND ($3::text IS NULL OR team_id IS NULL OR team_id=$3) ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(after).bind(&request.team_id).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list labels",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -3864,7 +3874,7 @@ pub(crate) async fn put_cycle(
     actor: &str,
     request: &admin::PutCycleRequest,
 ) -> Result<admin::PutCycleResponse, StorageError> {
-    let team: bool = sqlx::query_scalar(
+    let team: bool = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM teams WHERE organization_id=$1 AND team_id=$2)",
     )
     .bind(&request.organization_id)
@@ -3908,9 +3918,9 @@ pub(crate) async fn put_cycle(
         CommandStart::New => {}
     }
     let revision: i64 = if let Some(expected) = &request.expected_revision {
-        sqlx::query_scalar("UPDATE cycles SET number=$5,name=$6,starts_on=$7,ends_on=$8,revision=revision+1 WHERE organization_id=$1 AND team_id=$2 AND cycle_id=$3 AND revision=$4 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(&request.cycle_id).bind(parse_revision(expected)?).bind(request.number).bind(request.name.as_deref().map(str::trim)).bind(starts_on).bind(ends_on).fetch_optional(&mut *tx).await.map_err(|error|runtime("update cycle",error))?.ok_or(DomainFailure::RevisionConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("UPDATE cycles SET number=$5,name=$6,starts_on=$7,ends_on=$8,revision=revision+1 WHERE organization_id=$1 AND team_id=$2 AND cycle_id=$3 AND revision=$4 RETURNING revision").bind(&request.organization_id).bind(&request.team_id).bind(&request.cycle_id).bind(parse_revision(expected)?).bind(request.number).bind(request.name.as_deref().map(str::trim)).bind(starts_on).bind(ends_on).fetch_optional(&mut *tx).await.map_err(|error|runtime("update cycle",error))?.ok_or(DomainFailure::RevisionConflict)?
     } else {
-        sqlx::query_scalar("INSERT INTO cycles(cycle_id,organization_id,team_id,number,name,starts_on,ends_on) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.cycle_id).bind(&request.organization_id).bind(&request.team_id).bind(request.number).bind(request.name.as_deref().map(str::trim)).bind(starts_on).bind(ends_on).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert cycle",error))?.ok_or(DomainFailure::KeyConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("INSERT INTO cycles(cycle_id,organization_id,team_id,number,name,starts_on,ends_on) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.cycle_id).bind(&request.organization_id).bind(&request.team_id).bind(request.number).bind(request.name.as_deref().map(str::trim)).bind(starts_on).bind(ends_on).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert cycle",error))?.ok_or(DomainFailure::KeyConflict)?
     };
     let response = admin::PutCycleResponse {
         cycle_id: request.cycle_id.clone(),
@@ -3958,7 +3968,7 @@ pub(crate) async fn list_cycles(
     request: &admin::ListCyclesRequest,
 ) -> Result<admin::ListCyclesResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
-    let rows=sqlx::query("SELECT cycle_id,organization_id,team_id,number,name,starts_on,ends_on,revision,row_seq FROM cycles WHERE organization_id=$1 AND team_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.team_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list cycles",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT cycle_id,organization_id,team_id,number,name,starts_on,ends_on,revision,row_seq FROM cycles WHERE organization_id=$1 AND team_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.team_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list cycles",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -3993,7 +4003,7 @@ pub(crate) async fn put_milestone(
     actor: &str,
     request: &admin::PutMilestoneRequest,
 ) -> Result<admin::PutMilestoneResponse, StorageError> {
-    let project: bool = sqlx::query_scalar(
+    let project: bool = lenso_postgres_kit::sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM projects WHERE organization_id=$1 AND project_id=$2)",
     )
     .bind(&request.organization_id)
@@ -4031,9 +4041,9 @@ pub(crate) async fn put_milestone(
         CommandStart::New => {}
     }
     let revision: i64 = if let Some(expected) = &request.expected_revision {
-        sqlx::query_scalar("UPDATE milestones SET name=$5,description=$6,target_date=$7,revision=revision+1 WHERE organization_id=$1 AND project_id=$2 AND milestone_id=$3 AND revision=$4 RETURNING revision").bind(&request.organization_id).bind(&request.project_id).bind(&request.milestone_id).bind(parse_revision(expected)?).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(target_date).fetch_optional(&mut *tx).await.map_err(|error|runtime("update milestone",error))?.ok_or(DomainFailure::RevisionConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("UPDATE milestones SET name=$5,description=$6,target_date=$7,revision=revision+1 WHERE organization_id=$1 AND project_id=$2 AND milestone_id=$3 AND revision=$4 RETURNING revision").bind(&request.organization_id).bind(&request.project_id).bind(&request.milestone_id).bind(parse_revision(expected)?).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(target_date).fetch_optional(&mut *tx).await.map_err(|error|runtime("update milestone",error))?.ok_or(DomainFailure::RevisionConflict)?
     } else {
-        sqlx::query_scalar("INSERT INTO milestones(milestone_id,organization_id,project_id,name,description,target_date) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.milestone_id).bind(&request.organization_id).bind(&request.project_id).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(target_date).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert milestone",error))?.ok_or(DomainFailure::KeyConflict)?
+        lenso_postgres_kit::sqlx::query_scalar("INSERT INTO milestones(milestone_id,organization_id,project_id,name,description,target_date) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING revision").bind(&request.milestone_id).bind(&request.organization_id).bind(&request.project_id).bind(request.name.trim()).bind(request.description.as_deref().map(str::trim)).bind(target_date).fetch_optional(&mut *tx).await.map_err(|error|runtime("insert milestone",error))?.ok_or(DomainFailure::KeyConflict)?
     };
     let response = admin::PutMilestoneResponse {
         milestone_id: request.milestone_id.clone(),
@@ -4080,7 +4090,7 @@ pub(crate) async fn list_milestones(
     request: &admin::ListMilestonesRequest,
 ) -> Result<admin::ListMilestonesResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
-    let rows=sqlx::query("SELECT milestone_id,organization_id,project_id,name,description,target_date,revision,row_seq FROM milestones WHERE organization_id=$1 AND project_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.project_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list milestones",error))?;
+    let rows=lenso_postgres_kit::sqlx::query("SELECT milestone_id,organization_id,project_id,name,description,target_date,revision,row_seq FROM milestones WHERE organization_id=$1 AND project_id=$2 AND row_seq>$3 ORDER BY row_seq LIMIT $4").bind(&request.organization_id).bind(&request.project_id).bind(after).bind(request.limit+1).fetch_all(postgres.pool()).await.map_err(|error|runtime("list milestones",error))?;
     let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
     let mut items = Vec::new();
     let mut next_cursor = None;
@@ -4111,7 +4121,7 @@ pub(crate) async fn collect_export(
     postgres: &OwnedPostgres,
     request: &lenso_capability_data_export_source::CollectExportRequest,
 ) -> Result<lenso_capability_data_export_source::CollectExportResponse, StorageError> {
-    let comments=sqlx::query("SELECT comment_id,issue_id,body,deleted,created_at,updated_at FROM comments WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect comment export",error))?;
+    let comments=lenso_postgres_kit::sqlx::query("SELECT comment_id,issue_id,body,deleted,created_at,updated_at FROM comments WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect comment export",error))?;
     let mut comment_values = Vec::new();
     for row in comments {
         let created_at: OffsetDateTime = row
@@ -4122,7 +4132,7 @@ pub(crate) async fn collect_export(
             .map_err(|error| runtime("decode comment export", error))?;
         comment_values.push(json!({"comment_id":row.try_get::<String,_>("comment_id").map_err(|error|runtime("decode comment export",error))?,"issue_id":row.try_get::<String,_>("issue_id").map_err(|error|runtime("decode comment export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode comment export",error))?,"deleted":row.try_get::<bool,_>("deleted").map_err(|error|runtime("decode comment export",error))?,"created_at":format_time(created_at)?,"updated_at":format_time(updated_at)?}));
     }
-    let updates=sqlx::query("SELECT update_id,project_id,body,health,created_at FROM project_updates WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect project update export",error))?;
+    let updates=lenso_postgres_kit::sqlx::query("SELECT update_id,project_id,body,health,created_at FROM project_updates WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect project update export",error))?;
     let mut update_values = Vec::new();
     for row in updates {
         let created_at: OffsetDateTime = row
@@ -4130,7 +4140,7 @@ pub(crate) async fn collect_export(
             .map_err(|error| runtime("decode project update export", error))?;
         update_values.push(json!({"update_id":row.try_get::<String,_>("update_id").map_err(|error|runtime("decode project update export",error))?,"project_id":row.try_get::<String,_>("project_id").map_err(|error|runtime("decode project update export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode project update export",error))?,"health":row.try_get::<String,_>("health").map_err(|error|runtime("decode project update export",error))?,"created_at":format_time(created_at)?}));
     }
-    let activities=sqlx::query("SELECT activity_id,project_id,issue_id,operation,entity_kind,entity_id,revision,occurred_at FROM project_activity WHERE organization_id=$1 AND actor_subject=$2 ORDER BY activity_id").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect activity export",error))?;
+    let activities=lenso_postgres_kit::sqlx::query("SELECT activity_id,project_id,issue_id,operation,entity_kind,entity_id,revision,occurred_at FROM project_activity WHERE organization_id=$1 AND actor_subject=$2 ORDER BY activity_id").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect activity export",error))?;
     let mut activity_values = Vec::new();
     for row in activities {
         let occurred_at: OffsetDateTime = row
@@ -4138,7 +4148,7 @@ pub(crate) async fn collect_export(
             .map_err(|error| runtime("decode activity export", error))?;
         activity_values.push(json!({"activity_id":row.try_get::<i64,_>("activity_id").map_err(|error|runtime("decode activity export",error))?.to_string(),"project_id":row.try_get::<Option<String>,_>("project_id").map_err(|error|runtime("decode activity export",error))?,"issue_id":row.try_get::<Option<String>,_>("issue_id").map_err(|error|runtime("decode activity export",error))?,"operation":row.try_get::<String,_>("operation").map_err(|error|runtime("decode activity export",error))?,"entity_kind":row.try_get::<String,_>("entity_kind").map_err(|error|runtime("decode activity export",error))?,"entity_id":row.try_get::<String,_>("entity_id").map_err(|error|runtime("decode activity export",error))?,"revision":row.try_get::<Option<i64>,_>("revision").map_err(|error|runtime("decode activity export",error))?.map(|value|value.to_string()),"occurred_at":format_time(occurred_at)?}));
     }
-    let assignments: Vec<String> = sqlx::query_scalar("SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 ORDER BY issue_id").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|e|runtime("export assignments",e))?;
+    let assignments: Vec<String> = lenso_postgres_kit::sqlx::query_scalar("SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 ORDER BY issue_id").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|e|runtime("export assignments",e))?;
     let payload=serde_json::to_string(&json!({"organization_id":request.scope_id,"subject":request.subject,"comments":comment_values,"project_updates":update_values,"activity":activity_values,"assigned_issue_ids":assignments})).map_err(|error|runtime("serialize Projects export",error))?;
     Ok(lenso_capability_data_export_source::CollectExportResponse {
         items: vec![
@@ -4165,7 +4175,7 @@ pub(crate) async fn apply_retention(
         .begin()
         .await
         .map_err(|error| runtime("begin Projects retention", error))?;
-    let existing=sqlx::query("SELECT organization_id,subject,mode,receipt FROM project_retention_receipts WHERE action_id=$1 FOR UPDATE").bind(&request.action_id).fetch_optional(&mut *tx).await.map_err(|error|runtime("read Projects retention replay",error))?;
+    let existing=lenso_postgres_kit::sqlx::query("SELECT organization_id,subject,mode,receipt FROM project_retention_receipts WHERE action_id=$1 FOR UPDATE").bind(&request.action_id).fetch_optional(&mut *tx).await.map_err(|error|runtime("read Projects retention replay",error))?;
     if let Some(row) = existing {
         let organization_id: String = row
             .try_get("organization_id")
@@ -4190,16 +4200,16 @@ pub(crate) async fn apply_retention(
     }
     let tombstone = format!("privacy:{}", request.action_id);
     if mode == "delete" {
-        sqlx::query("UPDATE comments SET author_subject=$3,body='',revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("delete retained comments",error))?;
-        sqlx::query("UPDATE project_updates SET author_subject=$3,body='' WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("delete retained project updates",error))?;
+        lenso_postgres_kit::sqlx::query("UPDATE comments SET author_subject=$3,body='',revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("delete retained comments",error))?;
+        lenso_postgres_kit::sqlx::query("UPDATE project_updates SET author_subject=$3,body='' WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("delete retained project updates",error))?;
     } else {
-        sqlx::query("UPDATE comments SET author_subject=$3,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize comments",error))?;
-        sqlx::query("UPDATE project_updates SET author_subject=$3 WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize project updates",error))?;
+        lenso_postgres_kit::sqlx::query("UPDATE comments SET author_subject=$3,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize comments",error))?;
+        lenso_postgres_kit::sqlx::query("UPDATE project_updates SET author_subject=$3 WHERE organization_id=$1 AND author_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize project updates",error))?;
     }
-    sqlx::query("UPDATE project_activity SET actor_subject=$3 WHERE organization_id=$1 AND actor_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize activity",error))?;
-    sqlx::query("UPDATE issues SET assignee_subject=NULL,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND assignee_subject=$2").bind(&request.scope_id).bind(&request.subject).execute(&mut *tx).await.map_err(|e|runtime("clear retained assignee",e))?;
+    lenso_postgres_kit::sqlx::query("UPDATE project_activity SET actor_subject=$3 WHERE organization_id=$1 AND actor_subject=$2").bind(&request.scope_id).bind(&request.subject).bind(&tombstone).execute(&mut *tx).await.map_err(|error|runtime("anonymize activity",error))?;
+    lenso_postgres_kit::sqlx::query("UPDATE issues SET assignee_subject=NULL,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND assignee_subject=$2").bind(&request.scope_id).bind(&request.subject).execute(&mut *tx).await.map_err(|e|runtime("clear retained assignee",e))?;
     let receipt = format!("projects-retention:{}", request.action_id);
-    sqlx::query("INSERT INTO project_retention_receipts(action_id,organization_id,subject,mode,receipt) VALUES($1,$2,$3,$4,$5)").bind(&request.action_id).bind(&request.scope_id).bind(&request.subject).bind(mode).bind(&receipt).execute(&mut *tx).await.map_err(|error|runtime("store retention receipt",error))?;
+    lenso_postgres_kit::sqlx::query("INSERT INTO project_retention_receipts(action_id,organization_id,subject,mode,receipt) VALUES($1,$2,$3,$4,$5)").bind(&request.action_id).bind(&request.scope_id).bind(&request.subject).bind(mode).bind(&receipt).execute(&mut *tx).await.map_err(|error|runtime("store retention receipt",error))?;
     tx.commit()
         .await
         .map_err(|error| runtime("commit Projects retention", error))?;
@@ -4213,7 +4223,7 @@ pub(crate) async fn list_issue_workflow_states(
 ) -> Result<projects::ListIssueWorkflowStatesResponse, StorageError> {
     let after = parse_cursor(&request.after)?;
     // One statement keeps Team visibility and returned state data in the same snapshot.
-    let row = sqlx::query(
+    let row = lenso_postgres_kit::sqlx::query(
         r"
         SELECT COALESCE((SELECT jsonb_agg(page.value ORDER BY page.row_seq) FROM (
             SELECT w.row_seq, jsonb_build_object('cursor',w.row_seq::text,'state',
@@ -4283,7 +4293,7 @@ pub(crate) async fn get_issue_assignee(
     request: &collaboration::GetIssueAssigneeRequest,
 ) -> Result<collaboration::GetIssueAssigneeResponse, StorageError> {
     require_issue_visibility(postgres, &request.organization_id, &request.issue_id, actor).await?;
-    let row = sqlx::query(
+    let row = lenso_postgres_kit::sqlx::query(
         "SELECT assignee_subject,revision FROM issues WHERE organization_id=$1 AND issue_id=$2",
     )
     .bind(&request.organization_id)
@@ -4344,7 +4354,7 @@ pub(crate) async fn set_issue_assignee(
         CommandStart::Conflict => return Err(DomainFailure::IdempotencyConflict.into()),
         CommandStart::New => {}
     }
-    let row=sqlx::query("UPDATE issues SET assignee_subject=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision,project_id").bind(&request.organization_id).bind(&request.issue_id).bind(parse_revision(&request.expected_revision)?).bind(&request.assignee_subject).fetch_optional(&mut *tx).await.map_err(|e|runtime("set issue assignee",e))?.ok_or(DomainFailure::RevisionConflict)?;
+    let row=lenso_postgres_kit::sqlx::query("UPDATE issues SET assignee_subject=$4,revision=revision+1,updated_at=transaction_timestamp() WHERE organization_id=$1 AND issue_id=$2 AND revision=$3 RETURNING revision,project_id").bind(&request.organization_id).bind(&request.issue_id).bind(parse_revision(&request.expected_revision)?).bind(&request.assignee_subject).fetch_optional(&mut *tx).await.map_err(|e|runtime("set issue assignee",e))?.ok_or(DomainFailure::RevisionConflict)?;
     let revision: i64 = row
         .try_get("revision")
         .map_err(|e| runtime("decode assignment revision", e))?;
