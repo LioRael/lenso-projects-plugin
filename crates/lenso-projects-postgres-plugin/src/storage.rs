@@ -5,6 +5,8 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
+    future::Future,
+    io::{self, Write},
 };
 
 use lenso_capability_projects as projects;
@@ -4215,39 +4217,228 @@ pub(crate) async fn list_milestones(
     Ok(admin::ListMilestonesResponse { items, next_cursor })
 }
 
-pub(crate) async fn collect_export(
-    postgres: &OwnedPostgres,
+// Bound database materialization independently of the final payload ceiling.
+const EXPORT_PAGE_SIZE: i64 = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExportSection {
+    Activity,
+    AssignedIssueIds,
+    Comments,
+    ProjectUpdates,
+}
+
+impl ExportSection {
+    // Keep the original export section order as well as each array's order.
+    const ALL: [Self; 4] = [
+        Self::Comments,
+        Self::ProjectUpdates,
+        Self::Activity,
+        Self::AssignedIssueIds,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Activity => "activity",
+            Self::AssignedIssueIds => "assigned_issue_ids",
+            Self::Comments => "comments",
+            Self::ProjectUpdates => "project_updates",
+        }
+    }
+}
+
+#[derive(Default, Debug)]
+struct ExportCursor {
+    sequence: Option<i64>,
+    issue_id: Option<String>,
+}
+
+// serde_json writes escaped UTF-8 directly here. No intermediate serialized row or
+// whole-export Value is built, and neither length nor requested capacity exceeds the limit.
+struct ExportWriter {
+    bytes: Vec<u8>,
+    max_bytes: usize,
+    exhausted: bool,
+}
+
+impl ExportWriter {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_bytes,
+            exhausted: false,
+        }
+    }
+
+    fn error(&self, error: impl fmt::Display) -> StorageError {
+        if self.exhausted {
+            RuntimeFailure::ResourceExhausted {
+                capability: lenso_capability_data_export_source::CAPABILITY_ID,
+                operation: lenso_capability_data_export_source::COLLECT_EXPORT_OPERATION.to_owned(),
+            }
+            .into()
+        } else {
+            runtime("serialize Projects export", error)
+        }
+    }
+
+    fn raw(&mut self, bytes: &[u8]) -> Result<(), StorageError> {
+        self.write_all(bytes).map_err(|error| self.error(error))
+    }
+
+    fn json(&mut self, value: &impl Serialize) -> Result<(), StorageError> {
+        serde_json::to_writer(&mut *self, value).map_err(|error| self.error(error))
+    }
+
+    fn finish(self) -> Result<String, StorageError> {
+        String::from_utf8(self.bytes).map_err(|error| runtime("serialize Projects export", error))
+    }
+}
+
+impl Write for ExportWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.exhausted || bytes.len() > self.max_bytes - self.bytes.len() {
+            self.exhausted = true;
+            return Err(io::Error::other("Projects export byte ceiling exceeded"));
+        }
+        let required = self.bytes.len() + bytes.len();
+        if required > self.bytes.capacity() {
+            let capacity = required
+                .max(self.bytes.capacity().saturating_mul(2))
+                .min(self.max_bytes);
+            self.bytes.reserve_exact(capacity - self.bytes.len());
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+async fn fetch_export_page(
+    pool: &PgPool,
     request: &lenso_capability_data_export_source::CollectExportRequest,
-) -> Result<lenso_capability_data_export_source::CollectExportResponse, StorageError> {
-    let comments=sqlx::query("SELECT comment_id,issue_id,body,deleted,created_at,updated_at FROM comments WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect comment export",error))?;
-    let mut comment_values = Vec::new();
-    for row in comments {
-        let created_at: OffsetDateTime = row
-            .try_get("created_at")
-            .map_err(|error| runtime("decode comment export", error))?;
-        let updated_at: OffsetDateTime = row
-            .try_get("updated_at")
-            .map_err(|error| runtime("decode comment export", error))?;
-        comment_values.push(json!({"comment_id":row.try_get::<String,_>("comment_id").map_err(|error|runtime("decode comment export",error))?,"issue_id":row.try_get::<String,_>("issue_id").map_err(|error|runtime("decode comment export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode comment export",error))?,"deleted":row.try_get::<bool,_>("deleted").map_err(|error|runtime("decode comment export",error))?,"created_at":format_time(created_at)?,"updated_at":format_time(updated_at)?}));
+    section: ExportSection,
+    after: ExportCursor,
+) -> Result<Vec<sqlx::postgres::PgRow>, StorageError> {
+    let query = match section {
+        ExportSection::Comments => sqlx::query(
+            "SELECT row_seq,comment_id,issue_id,body,deleted,created_at,updated_at FROM comments WHERE organization_id=$1 AND author_subject=$2 AND ($3::bigint IS NULL OR row_seq>$3) ORDER BY row_seq LIMIT $4"
+        ).bind(&request.scope_id).bind(&request.subject).bind(after.sequence),
+        ExportSection::ProjectUpdates => sqlx::query(
+            "SELECT row_seq,update_id,project_id,body,health,created_at FROM project_updates WHERE organization_id=$1 AND author_subject=$2 AND ($3::bigint IS NULL OR row_seq>$3) ORDER BY row_seq LIMIT $4"
+        ).bind(&request.scope_id).bind(&request.subject).bind(after.sequence),
+        ExportSection::Activity => sqlx::query(
+            "SELECT activity_id,project_id,issue_id,operation,entity_kind,entity_id,revision,occurred_at FROM project_activity WHERE organization_id=$1 AND actor_subject=$2 AND ($3::bigint IS NULL OR activity_id>$3) ORDER BY activity_id LIMIT $4"
+        ).bind(&request.scope_id).bind(&request.subject).bind(after.sequence),
+        ExportSection::AssignedIssueIds => sqlx::query(
+            "SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 AND ($3::text IS NULL OR issue_id>$3) ORDER BY issue_id LIMIT $4"
+        ).bind(&request.scope_id).bind(&request.subject).bind(after.issue_id),
+    };
+    query
+        .bind(EXPORT_PAGE_SIZE)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| runtime("collect Projects export page", error))
+}
+
+fn decode_export_row(
+    section: ExportSection,
+    row: sqlx::postgres::PgRow,
+) -> Result<(ExportCursor, Value), StorageError> {
+    let cursor = match section {
+        ExportSection::AssignedIssueIds => ExportCursor {
+            issue_id: Some(
+                row.try_get("issue_id")
+                    .map_err(|error| runtime("decode assignment export cursor", error))?,
+            ),
+            ..ExportCursor::default()
+        },
+        _ => ExportCursor {
+            sequence: Some(
+                row.try_get(if section == ExportSection::Activity {
+                    "activity_id"
+                } else {
+                    "row_seq"
+                })
+                .map_err(|error| runtime("decode Projects export cursor", error))?,
+            ),
+            ..ExportCursor::default()
+        },
+    };
+    let value = match section {
+        ExportSection::Comments => {
+            let created_at: OffsetDateTime = row
+                .try_get("created_at")
+                .map_err(|error| runtime("decode comment export", error))?;
+            let updated_at: OffsetDateTime = row
+                .try_get("updated_at")
+                .map_err(|error| runtime("decode comment export", error))?;
+            json!({"comment_id":row.try_get::<String,_>("comment_id").map_err(|error|runtime("decode comment export",error))?,"issue_id":row.try_get::<String,_>("issue_id").map_err(|error|runtime("decode comment export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode comment export",error))?,"deleted":row.try_get::<bool,_>("deleted").map_err(|error|runtime("decode comment export",error))?,"created_at":format_time(created_at)?,"updated_at":format_time(updated_at)?})
+        }
+        ExportSection::ProjectUpdates => {
+            let created_at: OffsetDateTime = row
+                .try_get("created_at")
+                .map_err(|error| runtime("decode project update export", error))?;
+            json!({"update_id":row.try_get::<String,_>("update_id").map_err(|error|runtime("decode project update export",error))?,"project_id":row.try_get::<String,_>("project_id").map_err(|error|runtime("decode project update export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode project update export",error))?,"health":row.try_get::<String,_>("health").map_err(|error|runtime("decode project update export",error))?,"created_at":format_time(created_at)?})
+        }
+        ExportSection::Activity => {
+            let occurred_at: OffsetDateTime = row
+                .try_get("occurred_at")
+                .map_err(|error| runtime("decode activity export", error))?;
+            json!({"activity_id":row.try_get::<i64,_>("activity_id").map_err(|error|runtime("decode activity export",error))?.to_string(),"project_id":row.try_get::<Option<String>,_>("project_id").map_err(|error|runtime("decode activity export",error))?,"issue_id":row.try_get::<Option<String>,_>("issue_id").map_err(|error|runtime("decode activity export",error))?,"operation":row.try_get::<String,_>("operation").map_err(|error|runtime("decode activity export",error))?,"entity_kind":row.try_get::<String,_>("entity_kind").map_err(|error|runtime("decode activity export",error))?,"entity_id":row.try_get::<String,_>("entity_id").map_err(|error|runtime("decode activity export",error))?,"revision":row.try_get::<Option<i64>,_>("revision").map_err(|error|runtime("decode activity export",error))?.map(|value|value.to_string()),"occurred_at":format_time(occurred_at)?})
+        }
+        ExportSection::AssignedIssueIds => json!(cursor.issue_id),
+    };
+    Ok((cursor, value))
+}
+
+// The page loader is separate so the serialization and early-stop behavior can be
+// exercised without a database. Production retains only one bounded page at a time.
+async fn collect_export_pages<R, F, Fut>(
+    request: &lenso_capability_data_export_source::CollectExportRequest,
+    max_bytes: usize,
+    mut fetch_page: F,
+    decode_row: impl Fn(ExportSection, R) -> Result<(ExportCursor, Value), StorageError>,
+) -> Result<lenso_capability_data_export_source::CollectExportResponse, StorageError>
+where
+    F: FnMut(ExportSection, ExportCursor) -> Fut,
+    Fut: Future<Output = Result<Vec<R>, StorageError>>,
+{
+    let mut writer = ExportWriter::new(max_bytes);
+    writer.raw(b"{\"organization_id\":")?;
+    writer.json(&request.scope_id)?;
+    writer.raw(b",\"subject\":")?;
+    writer.json(&request.subject)?;
+    for section in ExportSection::ALL {
+        writer.raw(b",")?;
+        writer.json(&section.name())?;
+        writer.raw(b":[")?;
+        let mut after = ExportCursor::default();
+        let mut first = true;
+        loop {
+            let rows = fetch_page(section, after).await?;
+            let last_page = rows.len() < usize::try_from(EXPORT_PAGE_SIZE).unwrap_or(0);
+            after = ExportCursor::default();
+            for row in rows {
+                if !first {
+                    writer.raw(b",")?;
+                }
+                let (cursor, value) = decode_row(section, row)?;
+                writer.json(&value)?;
+                after = cursor;
+                first = false;
+            }
+            if last_page {
+                break;
+            }
+        }
+        writer.raw(b"]")?;
     }
-    let updates=sqlx::query("SELECT update_id,project_id,body,health,created_at FROM project_updates WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect project update export",error))?;
-    let mut update_values = Vec::new();
-    for row in updates {
-        let created_at: OffsetDateTime = row
-            .try_get("created_at")
-            .map_err(|error| runtime("decode project update export", error))?;
-        update_values.push(json!({"update_id":row.try_get::<String,_>("update_id").map_err(|error|runtime("decode project update export",error))?,"project_id":row.try_get::<String,_>("project_id").map_err(|error|runtime("decode project update export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode project update export",error))?,"health":row.try_get::<String,_>("health").map_err(|error|runtime("decode project update export",error))?,"created_at":format_time(created_at)?}));
-    }
-    let activities=sqlx::query("SELECT activity_id,project_id,issue_id,operation,entity_kind,entity_id,revision,occurred_at FROM project_activity WHERE organization_id=$1 AND actor_subject=$2 ORDER BY activity_id").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|error|runtime("collect activity export",error))?;
-    let mut activity_values = Vec::new();
-    for row in activities {
-        let occurred_at: OffsetDateTime = row
-            .try_get("occurred_at")
-            .map_err(|error| runtime("decode activity export", error))?;
-        activity_values.push(json!({"activity_id":row.try_get::<i64,_>("activity_id").map_err(|error|runtime("decode activity export",error))?.to_string(),"project_id":row.try_get::<Option<String>,_>("project_id").map_err(|error|runtime("decode activity export",error))?,"issue_id":row.try_get::<Option<String>,_>("issue_id").map_err(|error|runtime("decode activity export",error))?,"operation":row.try_get::<String,_>("operation").map_err(|error|runtime("decode activity export",error))?,"entity_kind":row.try_get::<String,_>("entity_kind").map_err(|error|runtime("decode activity export",error))?,"entity_id":row.try_get::<String,_>("entity_id").map_err(|error|runtime("decode activity export",error))?,"revision":row.try_get::<Option<i64>,_>("revision").map_err(|error|runtime("decode activity export",error))?.map(|value|value.to_string()),"occurred_at":format_time(occurred_at)?}));
-    }
-    let assignments: Vec<String> = sqlx::query_scalar("SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 ORDER BY issue_id").bind(&request.scope_id).bind(&request.subject).fetch_all(postgres.pool()).await.map_err(|e|runtime("export assignments",e))?;
-    let payload=serde_json::to_string(&json!({"organization_id":request.scope_id,"subject":request.subject,"comments":comment_values,"project_updates":update_values,"activity":activity_values,"assigned_issue_ids":assignments})).map_err(|error|runtime("serialize Projects export",error))?;
+    writer.raw(b"}")?;
+    let payload = writer.finish()?;
     Ok(lenso_capability_data_export_source::CollectExportResponse {
         items: vec![
             lenso_capability_data_export_source::CollectExportResponseItemsItem {
@@ -4258,6 +4449,24 @@ pub(crate) async fn collect_export(
         ],
     })
 }
+
+pub(crate) async fn collect_export(
+    postgres: &OwnedPostgres,
+    request: &lenso_capability_data_export_source::CollectExportRequest,
+    max_bytes: usize,
+) -> Result<lenso_capability_data_export_source::CollectExportResponse, StorageError> {
+    collect_export_pages(
+        request,
+        max_bytes,
+        |section, after| fetch_export_page(postgres.pool(), request, section, after),
+        decode_export_row,
+    )
+    .await
+}
+
+#[cfg(test)]
+#[path = "../tests/export/mod.rs"]
+mod export_tests;
 
 pub(crate) async fn apply_retention(
     postgres: &OwnedPostgres,
