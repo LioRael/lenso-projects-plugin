@@ -5,10 +5,10 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
-    future::Future,
     io::{self, Write},
 };
 
+use futures::{Stream, StreamExt, TryStreamExt, stream::BoxStream};
 use lenso_capability_projects as projects;
 use lenso_capability_projects_admin as admin;
 use lenso_capability_projects_collaboration as collaboration;
@@ -4217,7 +4217,7 @@ pub(crate) async fn list_milestones(
     Ok(admin::ListMilestonesResponse { items, next_cursor })
 }
 
-// Bound database materialization independently of the final payload ceiling.
+// Bound each range seek; rows are streamed, never collected into a page buffer.
 const EXPORT_PAGE_SIZE: i64 = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -4286,6 +4286,10 @@ impl ExportWriter {
         serde_json::to_writer(&mut *self, value).map_err(|error| self.error(error))
     }
 
+    fn remaining(&self) -> usize {
+        self.max_bytes - self.bytes.len()
+    }
+
     fn finish(self) -> Result<String, StorageError> {
         String::from_utf8(self.bytes).map_err(|error| runtime("serialize Projects export", error))
     }
@@ -4321,18 +4325,20 @@ fn export_exhausted() -> StorageError {
     .into()
 }
 
-async fn fetch_export_page(
-    pool: &PgPool,
-    request: &lenso_capability_data_export_source::CollectExportRequest,
+fn fetch_export_page<'a>(
+    pool: &'a PgPool,
+    request: &'a lenso_capability_data_export_source::CollectExportRequest,
     section: ExportSection,
     after: ExportCursor,
     max_bytes: usize,
-) -> Result<Vec<sqlx::postgres::PgRow>, StorageError> {
+) -> Result<BoxStream<'a, Result<sqlx::postgres::PgRow, StorageError>>, StorageError> {
     // Check the stored byte length inside PostgreSQL before projecting a TEXT body.
     // octet_length(text) can read TOAST length metadata without detoasting the body;
     // CASE never evaluates the body branch for an oversized value. NULL is an
     // exhaustion marker (both stored body columns are NOT NULL), not exported data.
-    // One page therefore retains at most EXPORT_PAGE_SIZE * max_bytes body bytes.
+    // max_bytes is the writer's remaining budget at this page's range seek.
+    // SQLx yields one row at a time; the serializer borrows its body, and drops
+    // the row before polling again. Page size never multiplies retained payload.
     let body_limit = i64::try_from(max_bytes)
         .map_err(|error| runtime("encode Projects export byte ceiling", error))?;
     let query = match section {
@@ -4385,22 +4391,23 @@ async fn fetch_export_page(
             }
         }
     };
-    query
-        .fetch_all(pool)
-        .await
+    Ok(query
+        .fetch(pool)
         .map_err(|error| runtime("collect Projects export page", error))
+        .boxed())
 }
 
-fn decode_export_body(row: &sqlx::postgres::PgRow) -> Result<String, StorageError> {
-    row.try_get::<Option<String>, _>("body")
+fn decode_export_body(row: &sqlx::postgres::PgRow) -> Result<&str, StorageError> {
+    row.try_get::<Option<&str>, _>("body")
         .map_err(|error| runtime("decode Projects export body", error))?
         .ok_or_else(export_exhausted)
 }
 
-fn decode_export_row(
+fn write_export_row(
     section: ExportSection,
-    row: &sqlx::postgres::PgRow,
-) -> Result<(ExportCursor, Value), StorageError> {
+    row: sqlx::postgres::PgRow,
+    writer: &mut ExportWriter,
+) -> Result<ExportCursor, StorageError> {
     let cursor = match section {
         ExportSection::AssignedIssueIds => ExportCursor {
             issue_id: Some(
@@ -4421,44 +4428,128 @@ fn decode_export_row(
             ..ExportCursor::default()
         },
     };
-    let value = match section {
+    // These structs follow the original json! insertion order. Borrow TEXT from
+    // PgRow so even a near-limit body has no second owned representation.
+    match section {
         ExportSection::Comments => {
-            let created_at: OffsetDateTime = row
-                .try_get("created_at")
-                .map_err(|error| runtime("decode comment export", error))?;
-            let updated_at: OffsetDateTime = row
-                .try_get("updated_at")
-                .map_err(|error| runtime("decode comment export", error))?;
-            json!({"comment_id":row.try_get::<String,_>("comment_id").map_err(|error|runtime("decode comment export",error))?,"issue_id":row.try_get::<String,_>("issue_id").map_err(|error|runtime("decode comment export",error))?,"body":decode_export_body(row)?,"deleted":row.try_get::<bool,_>("deleted").map_err(|error|runtime("decode comment export",error))?,"created_at":format_time(created_at)?,"updated_at":format_time(updated_at)?})
+            #[derive(Serialize)]
+            struct ExportComment<'a> {
+                comment_id: &'a str,
+                issue_id: &'a str,
+                body: &'a str,
+                deleted: bool,
+                created_at: String,
+                updated_at: String,
+            }
+            let value = ExportComment {
+                comment_id: row
+                    .try_get("comment_id")
+                    .map_err(|e| runtime("decode comment export", e))?,
+                issue_id: row
+                    .try_get("issue_id")
+                    .map_err(|e| runtime("decode comment export", e))?,
+                body: decode_export_body(&row)?,
+                deleted: row
+                    .try_get("deleted")
+                    .map_err(|e| runtime("decode comment export", e))?,
+                created_at: format_time(
+                    row.try_get("created_at")
+                        .map_err(|e| runtime("decode comment export", e))?,
+                )?,
+                updated_at: format_time(
+                    row.try_get("updated_at")
+                        .map_err(|e| runtime("decode comment export", e))?,
+                )?,
+            };
+            writer.json(&value)?;
         }
         ExportSection::ProjectUpdates => {
-            let created_at: OffsetDateTime = row
-                .try_get("created_at")
-                .map_err(|error| runtime("decode project update export", error))?;
-            json!({"update_id":row.try_get::<String,_>("update_id").map_err(|error|runtime("decode project update export",error))?,"project_id":row.try_get::<String,_>("project_id").map_err(|error|runtime("decode project update export",error))?,"body":decode_export_body(row)?,"health":row.try_get::<String,_>("health").map_err(|error|runtime("decode project update export",error))?,"created_at":format_time(created_at)?})
+            #[derive(Serialize)]
+            struct ExportUpdate<'a> {
+                update_id: &'a str,
+                project_id: &'a str,
+                body: &'a str,
+                health: &'a str,
+                created_at: String,
+            }
+            let value = ExportUpdate {
+                update_id: row
+                    .try_get("update_id")
+                    .map_err(|e| runtime("decode project update export", e))?,
+                project_id: row
+                    .try_get("project_id")
+                    .map_err(|e| runtime("decode project update export", e))?,
+                body: decode_export_body(&row)?,
+                health: row
+                    .try_get("health")
+                    .map_err(|e| runtime("decode project update export", e))?,
+                created_at: format_time(
+                    row.try_get("created_at")
+                        .map_err(|e| runtime("decode project update export", e))?,
+                )?,
+            };
+            writer.json(&value)?;
         }
         ExportSection::Activity => {
-            let occurred_at: OffsetDateTime = row
-                .try_get("occurred_at")
-                .map_err(|error| runtime("decode activity export", error))?;
-            json!({"activity_id":row.try_get::<i64,_>("activity_id").map_err(|error|runtime("decode activity export",error))?.to_string(),"project_id":row.try_get::<Option<String>,_>("project_id").map_err(|error|runtime("decode activity export",error))?,"issue_id":row.try_get::<Option<String>,_>("issue_id").map_err(|error|runtime("decode activity export",error))?,"operation":row.try_get::<String,_>("operation").map_err(|error|runtime("decode activity export",error))?,"entity_kind":row.try_get::<String,_>("entity_kind").map_err(|error|runtime("decode activity export",error))?,"entity_id":row.try_get::<String,_>("entity_id").map_err(|error|runtime("decode activity export",error))?,"revision":row.try_get::<Option<i64>,_>("revision").map_err(|error|runtime("decode activity export",error))?.map(|value|value.to_string()),"occurred_at":format_time(occurred_at)?})
+            #[derive(Serialize)]
+            struct ExportActivity<'a> {
+                activity_id: String,
+                project_id: Option<&'a str>,
+                issue_id: Option<&'a str>,
+                operation: &'a str,
+                entity_kind: &'a str,
+                entity_id: &'a str,
+                revision: Option<String>,
+                occurred_at: String,
+            }
+            let value = ExportActivity {
+                activity_id: row
+                    .try_get::<i64, _>("activity_id")
+                    .map_err(|e| runtime("decode activity export", e))?
+                    .to_string(),
+                project_id: row
+                    .try_get("project_id")
+                    .map_err(|e| runtime("decode activity export", e))?,
+                issue_id: row
+                    .try_get("issue_id")
+                    .map_err(|e| runtime("decode activity export", e))?,
+                operation: row
+                    .try_get("operation")
+                    .map_err(|e| runtime("decode activity export", e))?,
+                entity_kind: row
+                    .try_get("entity_kind")
+                    .map_err(|e| runtime("decode activity export", e))?,
+                entity_id: row
+                    .try_get("entity_id")
+                    .map_err(|e| runtime("decode activity export", e))?,
+                revision: row
+                    .try_get::<Option<i64>, _>("revision")
+                    .map_err(|e| runtime("decode activity export", e))?
+                    .map(|value| value.to_string()),
+                occurred_at: format_time(
+                    row.try_get("occurred_at")
+                        .map_err(|e| runtime("decode activity export", e))?,
+                )?,
+            };
+            writer.json(&value)?;
         }
-        ExportSection::AssignedIssueIds => json!(cursor.issue_id),
-    };
-    Ok((cursor, value))
+        ExportSection::AssignedIssueIds => writer.json(&cursor.issue_id)?,
+    }
+    drop(row);
+    Ok(cursor)
 }
 
 // The page loader is separate so the serialization and early-stop behavior can be
-// exercised without a database. Production retains only one bounded page at a time.
-async fn collect_export_pages<R, F, Fut>(
+// exercised without a database. Production retains only one borrowed source row.
+async fn collect_export_pages<R, F, S>(
     request: &lenso_capability_data_export_source::CollectExportRequest,
     max_bytes: usize,
     mut fetch_page: F,
-    decode_row: impl Fn(ExportSection, R) -> Result<(ExportCursor, Value), StorageError>,
+    write_row: impl Fn(ExportSection, R, &mut ExportWriter) -> Result<ExportCursor, StorageError>,
 ) -> Result<lenso_capability_data_export_source::CollectExportResponse, StorageError>
 where
-    F: FnMut(ExportSection, ExportCursor) -> Fut,
-    Fut: Future<Output = Result<Vec<R>, StorageError>>,
+    F: FnMut(ExportSection, ExportCursor, usize) -> Result<S, StorageError>,
+    S: Stream<Item = Result<R, StorageError>>,
 {
     let mut writer = ExportWriter::new(max_bytes);
     writer.raw(b"{\"organization_id\":")?;
@@ -4472,19 +4563,19 @@ where
         let mut after = ExportCursor::default();
         let mut first = true;
         loop {
-            let rows = fetch_page(section, after).await?;
-            let last_page = rows.len() < usize::try_from(EXPORT_PAGE_SIZE).unwrap_or(0);
+            let rows = fetch_page(section, after, writer.remaining())?;
+            futures::pin_mut!(rows);
+            let mut count = 0;
             after = ExportCursor::default();
-            for row in rows {
+            while let Some(row) = rows.try_next().await? {
                 if !first {
                     writer.raw(b",")?;
                 }
-                let (cursor, value) = decode_row(section, row)?;
-                writer.json(&value)?;
-                after = cursor;
+                after = write_row(section, row, &mut writer)?;
+                count += 1;
                 first = false;
             }
-            if last_page {
+            if count < EXPORT_PAGE_SIZE {
                 break;
             }
         }
@@ -4511,8 +4602,10 @@ pub(crate) async fn collect_export(
     collect_export_pages(
         request,
         max_bytes,
-        |section, after| fetch_export_page(postgres.pool(), request, section, after, max_bytes),
-        |section, row| decode_export_row(section, &row),
+        |section, after, remaining| {
+            fetch_export_page(postgres.pool(), request, section, after, remaining)
+        },
+        write_export_row,
     )
     .await
 }

@@ -1,5 +1,5 @@
 use super::*;
-use futures::{executor::block_on, future::ready};
+use futures::{executor::block_on, stream};
 use lenso_capability_data_export_source::{CollectExportRequest, CollectExportResponse};
 use std::cell::Cell;
 
@@ -49,11 +49,20 @@ fn fixture(section: ExportSection, index: i64) -> Value {
     }
 }
 
+fn write_fixture(
+    _: ExportSection,
+    (cursor, value): (ExportCursor, Value),
+    writer: &mut ExportWriter,
+) -> Result<ExportCursor, StorageError> {
+    writer.json(&value)?;
+    Ok(cursor)
+}
+
 fn synthetic_export(count: i64, max_bytes: usize) -> CollectExportResponse {
     block_on(collect_export_pages(
         &request(),
         max_bytes,
-        |section, after| {
+        |section, after, _| {
             let start = if section == ExportSection::AssignedIssueIds {
                 after.issue_id.map_or(0, |id| {
                     id.strip_prefix("issue_").unwrap().parse::<i64>().unwrap()
@@ -61,25 +70,26 @@ fn synthetic_export(count: i64, max_bytes: usize) -> CollectExportResponse {
             } else {
                 after.sequence.unwrap_or(0) / 3
             };
-            ready(Ok(((start + 1)..=count)
-                .take(usize::try_from(EXPORT_PAGE_SIZE).unwrap())
-                .map(|index| {
-                    let cursor = if section == ExportSection::AssignedIssueIds {
-                        ExportCursor {
-                            issue_id: Some(format!("issue_{index:04}")),
-                            ..ExportCursor::default()
-                        }
-                    } else {
-                        ExportCursor {
-                            sequence: Some(index * 3),
-                            ..ExportCursor::default()
-                        }
-                    };
-                    (cursor, fixture(section, index))
-                })
-                .collect()))
+            Ok(stream::iter(
+                ((start + 1)..=count)
+                    .take(usize::try_from(EXPORT_PAGE_SIZE).unwrap())
+                    .map(move |index| {
+                        let cursor = if section == ExportSection::AssignedIssueIds {
+                            ExportCursor {
+                                issue_id: Some(format!("issue_{index:04}")),
+                                ..ExportCursor::default()
+                            }
+                        } else {
+                            ExportCursor {
+                                sequence: Some(index * 3),
+                                ..ExportCursor::default()
+                            }
+                        };
+                        Ok((cursor, fixture(section, index)))
+                    }),
+            ))
         },
-        |_, row| Ok(row),
+        write_fixture,
     ))
     .unwrap()
 }
@@ -118,8 +128,8 @@ fn empty_sections_and_exact_payload_boundary() {
     assert_exhausted(block_on(collect_export_pages(
         &request(),
         payload.len() - 1,
-        |_, _| ready(Ok(Vec::<(ExportCursor, Value)>::new())),
-        |_, row| Ok(row),
+        |_, _, _| Ok(stream::empty::<Result<(ExportCursor, Value), StorageError>>()),
+        write_fixture,
     )));
 }
 
@@ -138,14 +148,19 @@ fn protocol_maximum_boundary_counts_utf8_and_json_escaping() {
         let result = block_on(collect_export_pages(
             &request(),
             crate::MAX_EXPORT_BYTES,
-            |section, _| {
-                ready(Ok(if section == ExportSection::AssignedIssueIds {
-                    vec![(ExportCursor::default(), json!(format!("{value}{extra}")))]
-                } else {
-                    vec![]
-                }))
+            |section, _, _| {
+                Ok(stream::iter(
+                    if section == ExportSection::AssignedIssueIds {
+                        vec![Ok((
+                            ExportCursor::default(),
+                            json!(format!("{value}{extra}")),
+                        ))]
+                    } else {
+                        vec![]
+                    },
+                ))
             },
-            |_, row| Ok(row),
+            write_fixture,
         ));
         if extra.is_empty() {
             let result = result.unwrap();
@@ -169,23 +184,19 @@ fn exhaustion_stops_decoding_and_loading_later_pages_and_sections() {
     let result = block_on(collect_export_pages(
         &request(),
         max_bytes,
-        |section, after| {
+        |section, after, _| {
             assert_eq!(section, ExportSection::Comments);
             fetched.set(fetched.get() + 1);
             let start = after.sequence.unwrap_or(0);
-            ready(Ok(
-                (start + 1..=start + EXPORT_PAGE_SIZE).collect::<Vec<_>>()
-            ))
+            Ok(stream::iter((start + 1..=start + EXPORT_PAGE_SIZE).map(Ok)))
         },
-        |_, index| {
+        |_, index, writer| {
             decoded.set(decoded.get() + 1);
-            Ok((
-                ExportCursor {
-                    sequence: Some(index),
-                    ..ExportCursor::default()
-                },
-                json!(10),
-            ))
+            writer.json(&10)?;
+            Ok(ExportCursor {
+                sequence: Some(index),
+                ..ExportCursor::default()
+            })
         },
     ));
     assert_exhausted(result);
@@ -198,12 +209,12 @@ fn very_small_budget_stops_before_database_fetch() {
     assert_exhausted(block_on(collect_export_pages(
         &request(),
         1,
-        |_, _| {
+        |_, _, _| {
             panic!("no page should be fetched");
             #[allow(unreachable_code)]
-            ready(Ok(Vec::<(ExportCursor, Value)>::new()))
+            Ok(stream::empty::<Result<(ExportCursor, Value), StorageError>>())
         },
-        |_, row| Ok(row),
+        write_fixture,
     )));
 }
 
@@ -222,3 +233,89 @@ fn writer_never_grows_past_budget_even_with_large_escaped_value() {
 
 #[cfg(feature = "postgres-acceptance")]
 mod postgres;
+
+#[test]
+fn streaming_drops_each_row_before_polling_and_passes_remaining_budget() {
+    struct TrackedRow<'a> {
+        index: i64,
+        live: &'a Cell<usize>,
+    }
+    impl Drop for TrackedRow<'_> {
+        fn drop(&mut self) {
+            self.live.set(self.live.get() - 1);
+        }
+    }
+
+    let live = Cell::new(0);
+    let remaining = Cell::new(crate::MAX_EXPORT_BYTES);
+    let fetched = Cell::new(0);
+    let written = Cell::new(0);
+    let count = EXPORT_PAGE_SIZE * 2 + 3;
+    let result = block_on(collect_export_pages(
+        &request(),
+        crate::MAX_EXPORT_BYTES,
+        |_, after, budget| {
+            assert_eq!(live.get(), 0);
+            if after.sequence.is_some() {
+                assert_eq!(budget, remaining.get());
+            } else {
+                assert!(budget < remaining.get(), "include framing between sections");
+            }
+            remaining.set(budget);
+            fetched.set(fetched.get() + 1);
+            Ok(stream::iter(
+                (after.sequence.unwrap_or(0) + 1..=count)
+                    .take(usize::try_from(EXPORT_PAGE_SIZE).unwrap())
+                    .map(|index| {
+                        assert_eq!(live.replace(1), 0, "previous row must be dropped");
+                        Ok(TrackedRow { index, live: &live })
+                    }),
+            ))
+        },
+        |_, row, writer| {
+            assert_eq!(live.get(), 1);
+            writer.json(&row.index)?;
+            // At the next page boundary this is the exact remaining budget;
+            // section framing consumes more bytes before its first page.
+            remaining.set(writer.remaining());
+            written.set(written.get() + 1);
+            Ok(ExportCursor {
+                sequence: Some(row.index),
+                ..ExportCursor::default()
+            })
+        },
+    ))
+    .unwrap();
+    assert_eq!(live.get(), 0);
+    assert_eq!(fetched.get(), 12);
+    assert_eq!(written.get(), count * 4);
+    assert!(!result.items[0].payload.is_empty());
+}
+
+#[test]
+fn stream_error_stops_polling_and_loading() {
+    let fetched = Cell::new(0);
+    let polled = Cell::new(0);
+    let result = block_on(collect_export_pages(
+        &request(),
+        crate::MAX_EXPORT_BYTES,
+        |_, _, _| {
+            fetched.set(fetched.get() + 1);
+            Ok(stream::iter((0..EXPORT_PAGE_SIZE).map(|index| {
+                polled.set(polled.get() + 1);
+                if index == 1 {
+                    Err(runtime("test stream", "connection lost"))
+                } else {
+                    Ok((ExportCursor::default(), json!(index)))
+                }
+            })))
+        },
+        write_fixture,
+    ));
+    assert!(
+        matches!(result, Err(StorageError::Runtime(RuntimeFailure::PluginFailure { detail }))
+        if detail.contains("connection lost"))
+    );
+    assert_eq!(fetched.get(), 1);
+    assert_eq!(polled.get(), 2);
+}
