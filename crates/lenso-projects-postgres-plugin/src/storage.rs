@@ -4272,11 +4272,7 @@ impl ExportWriter {
 
     fn error(&self, error: impl fmt::Display) -> StorageError {
         if self.exhausted {
-            RuntimeFailure::ResourceExhausted {
-                capability: lenso_capability_data_export_source::CAPABILITY_ID,
-                operation: lenso_capability_data_export_source::COLLECT_EXPORT_OPERATION.to_owned(),
-            }
-            .into()
+            export_exhausted()
         } else {
             runtime("serialize Projects export", error)
         }
@@ -4317,36 +4313,93 @@ impl Write for ExportWriter {
     }
 }
 
+fn export_exhausted() -> StorageError {
+    RuntimeFailure::ResourceExhausted {
+        capability: lenso_capability_data_export_source::CAPABILITY_ID,
+        operation: lenso_capability_data_export_source::COLLECT_EXPORT_OPERATION.to_owned(),
+    }
+    .into()
+}
+
 async fn fetch_export_page(
     pool: &PgPool,
     request: &lenso_capability_data_export_source::CollectExportRequest,
     section: ExportSection,
     after: ExportCursor,
+    max_bytes: usize,
 ) -> Result<Vec<sqlx::postgres::PgRow>, StorageError> {
+    // Check the stored byte length inside PostgreSQL before projecting a TEXT body.
+    // octet_length(text) can read TOAST length metadata without detoasting the body;
+    // CASE never evaluates the body branch for an oversized value. NULL is an
+    // exhaustion marker (both stored body columns are NOT NULL), not exported data.
+    // One page therefore retains at most EXPORT_PAGE_SIZE * max_bytes body bytes.
+    let body_limit = i64::try_from(max_bytes)
+        .map_err(|error| runtime("encode Projects export byte ceiling", error))?;
     let query = match section {
-        ExportSection::Comments => sqlx::query(
-            "SELECT row_seq,comment_id,issue_id,body,deleted,created_at,updated_at FROM comments WHERE organization_id=$1 AND author_subject=$2 AND ($3::bigint IS NULL OR row_seq>$3) ORDER BY row_seq LIMIT $4"
-        ).bind(&request.scope_id).bind(&request.subject).bind(after.sequence),
-        ExportSection::ProjectUpdates => sqlx::query(
-            "SELECT row_seq,update_id,project_id,body,health,created_at FROM project_updates WHERE organization_id=$1 AND author_subject=$2 AND ($3::bigint IS NULL OR row_seq>$3) ORDER BY row_seq LIMIT $4"
-        ).bind(&request.scope_id).bind(&request.subject).bind(after.sequence),
-        ExportSection::Activity => sqlx::query(
-            "SELECT activity_id,project_id,issue_id,operation,entity_kind,entity_id,revision,occurred_at FROM project_activity WHERE organization_id=$1 AND actor_subject=$2 AND ($3::bigint IS NULL OR activity_id>$3) ORDER BY activity_id LIMIT $4"
-        ).bind(&request.scope_id).bind(&request.subject).bind(after.sequence),
-        ExportSection::AssignedIssueIds => sqlx::query(
-            "SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 AND ($3::text IS NULL OR issue_id>$3) ORDER BY issue_id LIMIT $4"
-        ).bind(&request.scope_id).bind(&request.subject).bind(after.issue_id),
+        ExportSection::Comments => {
+            let query = sqlx::query(if after.sequence.is_some() {
+                "SELECT row_seq,comment_id,issue_id,CASE WHEN octet_length(body)<=$4 THEN body END AS body,deleted,created_at,updated_at FROM comments WHERE organization_id=$1 AND author_subject=$2 AND row_seq>$5 ORDER BY row_seq LIMIT $3"
+            } else {
+                "SELECT row_seq,comment_id,issue_id,CASE WHEN octet_length(body)<=$4 THEN body END AS body,deleted,created_at,updated_at FROM comments WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq LIMIT $3"
+            }).bind(&request.scope_id).bind(&request.subject).bind(EXPORT_PAGE_SIZE).bind(body_limit);
+            if let Some(sequence) = after.sequence {
+                query.bind(sequence)
+            } else {
+                query
+            }
+        }
+        ExportSection::ProjectUpdates => {
+            let query = sqlx::query(if after.sequence.is_some() {
+                "SELECT row_seq,update_id,project_id,CASE WHEN octet_length(body)<=$4 THEN body END AS body,health,created_at FROM project_updates WHERE organization_id=$1 AND author_subject=$2 AND row_seq>$5 ORDER BY row_seq LIMIT $3"
+            } else {
+                "SELECT row_seq,update_id,project_id,CASE WHEN octet_length(body)<=$4 THEN body END AS body,health,created_at FROM project_updates WHERE organization_id=$1 AND author_subject=$2 ORDER BY row_seq LIMIT $3"
+            }).bind(&request.scope_id).bind(&request.subject).bind(EXPORT_PAGE_SIZE).bind(body_limit);
+            if let Some(sequence) = after.sequence {
+                query.bind(sequence)
+            } else {
+                query
+            }
+        }
+        ExportSection::Activity => {
+            let query = sqlx::query(if after.sequence.is_some() {
+                "SELECT activity_id,project_id,issue_id,operation,entity_kind,entity_id,revision,occurred_at FROM project_activity WHERE organization_id=$1 AND actor_subject=$2 AND activity_id>$4 ORDER BY activity_id LIMIT $3"
+            } else {
+                "SELECT activity_id,project_id,issue_id,operation,entity_kind,entity_id,revision,occurred_at FROM project_activity WHERE organization_id=$1 AND actor_subject=$2 ORDER BY activity_id LIMIT $3"
+            }).bind(&request.scope_id).bind(&request.subject).bind(EXPORT_PAGE_SIZE);
+            if let Some(sequence) = after.sequence {
+                query.bind(sequence)
+            } else {
+                query
+            }
+        }
+        ExportSection::AssignedIssueIds => {
+            let query = sqlx::query(if after.issue_id.is_some() {
+                "SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 AND issue_id>$4 ORDER BY issue_id LIMIT $3"
+            } else {
+                "SELECT issue_id FROM issues WHERE organization_id=$1 AND assignee_subject=$2 ORDER BY issue_id LIMIT $3"
+            }).bind(&request.scope_id).bind(&request.subject).bind(EXPORT_PAGE_SIZE);
+            if let Some(issue_id) = after.issue_id {
+                query.bind(issue_id)
+            } else {
+                query
+            }
+        }
     };
     query
-        .bind(EXPORT_PAGE_SIZE)
         .fetch_all(pool)
         .await
         .map_err(|error| runtime("collect Projects export page", error))
 }
 
+fn decode_export_body(row: &sqlx::postgres::PgRow) -> Result<String, StorageError> {
+    row.try_get::<Option<String>, _>("body")
+        .map_err(|error| runtime("decode Projects export body", error))?
+        .ok_or_else(export_exhausted)
+}
+
 fn decode_export_row(
     section: ExportSection,
-    row: sqlx::postgres::PgRow,
+    row: &sqlx::postgres::PgRow,
 ) -> Result<(ExportCursor, Value), StorageError> {
     let cursor = match section {
         ExportSection::AssignedIssueIds => ExportCursor {
@@ -4376,13 +4429,13 @@ fn decode_export_row(
             let updated_at: OffsetDateTime = row
                 .try_get("updated_at")
                 .map_err(|error| runtime("decode comment export", error))?;
-            json!({"comment_id":row.try_get::<String,_>("comment_id").map_err(|error|runtime("decode comment export",error))?,"issue_id":row.try_get::<String,_>("issue_id").map_err(|error|runtime("decode comment export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode comment export",error))?,"deleted":row.try_get::<bool,_>("deleted").map_err(|error|runtime("decode comment export",error))?,"created_at":format_time(created_at)?,"updated_at":format_time(updated_at)?})
+            json!({"comment_id":row.try_get::<String,_>("comment_id").map_err(|error|runtime("decode comment export",error))?,"issue_id":row.try_get::<String,_>("issue_id").map_err(|error|runtime("decode comment export",error))?,"body":decode_export_body(row)?,"deleted":row.try_get::<bool,_>("deleted").map_err(|error|runtime("decode comment export",error))?,"created_at":format_time(created_at)?,"updated_at":format_time(updated_at)?})
         }
         ExportSection::ProjectUpdates => {
             let created_at: OffsetDateTime = row
                 .try_get("created_at")
                 .map_err(|error| runtime("decode project update export", error))?;
-            json!({"update_id":row.try_get::<String,_>("update_id").map_err(|error|runtime("decode project update export",error))?,"project_id":row.try_get::<String,_>("project_id").map_err(|error|runtime("decode project update export",error))?,"body":row.try_get::<String,_>("body").map_err(|error|runtime("decode project update export",error))?,"health":row.try_get::<String,_>("health").map_err(|error|runtime("decode project update export",error))?,"created_at":format_time(created_at)?})
+            json!({"update_id":row.try_get::<String,_>("update_id").map_err(|error|runtime("decode project update export",error))?,"project_id":row.try_get::<String,_>("project_id").map_err(|error|runtime("decode project update export",error))?,"body":decode_export_body(row)?,"health":row.try_get::<String,_>("health").map_err(|error|runtime("decode project update export",error))?,"created_at":format_time(created_at)?})
         }
         ExportSection::Activity => {
             let occurred_at: OffsetDateTime = row
@@ -4458,8 +4511,8 @@ pub(crate) async fn collect_export(
     collect_export_pages(
         request,
         max_bytes,
-        |section, after| fetch_export_page(postgres.pool(), request, section, after),
-        decode_export_row,
+        |section, after| fetch_export_page(postgres.pool(), request, section, after, max_bytes),
+        |section, row| decode_export_row(section, &row),
     )
     .await
 }
