@@ -42,6 +42,12 @@ pub use operator::{ProjectsOperator, ProjectsOperatorError};
 
 const DEPENDENCY_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_CALLERS: usize = 64;
+// Data Export coordinator's published max_item_bytes upper bound.
+const MAX_EXPORT_BYTES: usize = 1_048_576;
+
+const fn default_export_max_bytes() -> usize {
+    MAX_EXPORT_BYTES
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -53,6 +59,8 @@ pub struct ProjectsConfig {
     project_callers: Vec<String>,
     admin_callers: Vec<String>,
     governance_callers: Vec<String>,
+    #[serde(default = "default_export_max_bytes")]
+    export_max_bytes: usize,
 }
 
 impl ProjectsConfig {
@@ -74,6 +82,7 @@ impl ProjectsConfig {
             project_callers,
             admin_callers,
             governance_callers,
+            export_max_bytes: default_export_max_bytes(),
         };
         value.validate()?;
         Ok(value)
@@ -100,6 +109,9 @@ impl ProjectsConfig {
         }
         if !valid_callers(&self.governance_callers) {
             return Err(ProjectsConfigError::InvalidGovernanceCallers);
+        }
+        if !(1..=MAX_EXPORT_BYTES).contains(&self.export_max_bytes) {
+            return Err(ProjectsConfigError::InvalidExportMaxBytes);
         }
         Ok(())
     }
@@ -130,6 +142,8 @@ pub enum ProjectsConfigError {
     InvalidAdminCallers,
     #[error("governance_callers must contain 1 to 64 unique Instance keys")]
     InvalidGovernanceCallers,
+    #[error("export_max_bytes must be from 1 through 1048576")]
+    InvalidExportMaxBytes,
 }
 
 fn validate_config(config: &ProjectsConfig) -> Result<(), RuntimeFailure> {
@@ -1444,7 +1458,9 @@ impl ProjectsPlugin {
             ));
         }
         let prepared = self.prepared().map_err(PluginError::runtime)?;
-        match storage::collect_export(&prepared.postgres, &request).await {
+        match storage::collect_export(&prepared.postgres, &request, self.config.export_max_bytes)
+            .await
+        {
             Ok(value) => Ok(value),
             Err(StorageError::Domain(_)) => Err(PluginError::domain(
                 export_source::CollectExportError::InvalidRequest,
@@ -1872,6 +1888,78 @@ mod tests {
                 membership::CAPABILITY_ID,
                 access::CAPABILITY_ID,
             ])
+        );
+    }
+
+    #[test]
+    fn export_byte_configuration_defaults_and_validates_protocol_bounds() {
+        let mut value = serde_json::to_value(config()).unwrap();
+        value.as_object_mut().unwrap().remove("export_max_bytes");
+        let default: ProjectsConfig = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(default.export_max_bytes, MAX_EXPORT_BYTES);
+        assert_eq!(default.validate(), Ok(()));
+        for limit in [1, MAX_EXPORT_BYTES] {
+            value["export_max_bytes"] = serde_json::json!(limit);
+            let config: ProjectsConfig = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(config.export_max_bytes, limit);
+            assert_eq!(config.validate(), Ok(()));
+        }
+        for limit in [0, MAX_EXPORT_BYTES + 1] {
+            value["export_max_bytes"] = serde_json::json!(limit);
+            let config: ProjectsConfig = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(
+                config.validate(),
+                Err(ProjectsConfigError::InvalidExportMaxBytes)
+            );
+            assert!(matches!(
+                validate_config(&config),
+                Err(RuntimeFailure::InvalidResolvedPlan { .. })
+            ));
+        }
+        for invalid in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("100"),
+            serde_json::Value::Null,
+        ] {
+            value["export_max_bytes"] = invalid;
+            assert!(serde_json::from_value::<ProjectsConfig>(value.clone()).is_err());
+        }
+        let schema: serde_json::Value =
+            serde_json::from_str(include_str!("../configuration.schema.json")).unwrap();
+        assert_eq!(
+            schema["properties"]["export_max_bytes"],
+            serde_json::json!({
+                "type": "integer", "minimum": 1, "maximum": MAX_EXPORT_BYTES, "default": MAX_EXPORT_BYTES
+            })
+        );
+    }
+
+    #[test]
+    fn export_authorization_and_request_validation_precede_storage() {
+        let request = export_source::CollectExportRequest {
+            export_id: "export_1".to_owned(),
+            scope_kind: "organization".to_owned(),
+            scope_id: "org_acme".to_owned(),
+            subject: "usr_admin".to_owned(),
+        };
+        assert_eq!(
+            futures::executor::block_on(
+                plugin().collect_export(context("unknown-api"), request.clone())
+            ),
+            Err(PluginError::Domain(
+                export_source::CollectExportError::Forbidden
+            ))
+        );
+        let mut invalid = request;
+        invalid.scope_kind = "team".to_owned();
+        assert_eq!(
+            futures::executor::block_on(
+                plugin().collect_export(context("privacy-service"), invalid)
+            ),
+            Err(PluginError::Domain(
+                export_source::CollectExportError::InvalidRequest
+            ))
         );
     }
 

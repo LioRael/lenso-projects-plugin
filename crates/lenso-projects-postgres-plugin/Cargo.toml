@@ -12,6 +12,7 @@ plugin-id = "lenso.projects.postgres"
 root-slot = "projects"
 
 [dependencies]
+futures.workspace = true
 lenso.workspace = true
 lenso-auth-sdk.workspace = true
 lenso-capability-access-control.workspace = true
@@ -33,7 +34,6 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-futures.workspace = true
 tokio.workspace = true
 
 [features]
