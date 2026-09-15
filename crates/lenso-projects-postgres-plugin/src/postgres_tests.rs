@@ -1074,3 +1074,384 @@ async fn issue_workflow_catalog_preserves_team_visibility_and_pagination() {
     ));
     cleanup(&database_url, &schema_name, postgres).await;
 }
+
+#[derive(Default)]
+struct IssuePageObservation {
+    queries: usize,
+    // Delete after the indicated query has completed, at a deterministic read boundary.
+    delete_after: Option<(usize, String)>,
+}
+
+tokio::task_local! {
+    static ISSUE_PAGE_OBSERVATION: RefCell<IssuePageObservation>;
+}
+
+pub(super) async fn observe_issue_page_query(connection: &mut sqlx::PgConnection) {
+    let deletion = ISSUE_PAGE_OBSERVATION
+        .try_with(|state| {
+            let mut state = state.borrow_mut();
+            state.queries += 1;
+            if state
+                .delete_after
+                .as_ref()
+                .is_some_and(|(query, _)| *query == state.queries)
+            {
+                state.delete_after.take().map(|(_, id)| id)
+            } else {
+                None
+            }
+        })
+        .ok()
+        .flatten();
+    if let Some(id) = deletion {
+        sqlx::query("DELETE FROM issues WHERE organization_id='org_acme' AND issue_id=$1")
+            .bind(id)
+            .execute(connection)
+            .await
+            .unwrap();
+    }
+}
+
+async fn observed_issue_page(
+    postgres: &OwnedPostgres,
+    actor: &str,
+    request: &projects::ListIssuesRequest,
+    delete_after: Option<(usize, String)>,
+) -> (Result<projects::ListIssuesResponse, StorageError>, usize) {
+    ISSUE_PAGE_OBSERVATION
+        .scope(
+            RefCell::new(IssuePageObservation {
+                queries: 0,
+                delete_after,
+            }),
+            async {
+                let result = storage::list_issues(postgres, actor, request).await;
+                let queries = ISSUE_PAGE_OBSERVATION.with(|state| state.borrow().queries);
+                (result, queries)
+            },
+        )
+        .await
+}
+
+fn issue_page_request() -> projects::ListIssuesRequest {
+    projects::ListIssuesRequest {
+        organization_id: "org_acme".into(),
+        project_id: None,
+        team_id: None,
+        workflow_state_id: None,
+        include_archived: false,
+        after: None,
+        limit: 100,
+    }
+}
+
+async fn seed_issue_pages(postgres: &OwnedPostgres) -> Vec<String> {
+    put_team_and_workflow(postgres, "team_public", "PUB", "state_public").await;
+    put_team_and_workflow(postgres, "team_private", "PVT", "state_private").await;
+    for (project, teams) in [
+        ("project_public", vec!["team_public"]),
+        ("project_private", vec!["team_private"]),
+        ("project_mixed", vec!["team_public", "team_private"]),
+    ] {
+        storage::create_project(
+            postgres,
+            "projects-api",
+            "usr_creator",
+            &projects::CreateProjectRequest {
+                idempotency_key: project.into(),
+                organization_id: "org_acme".into(),
+                project_id: project.into(),
+                name: project.into(),
+                summary: None,
+                lead_team_id: teams[0].into(),
+                team_ids: teams.into_iter().map(str::to_owned).collect(),
+                status_id: None,
+                milestone_id: None,
+                start_date: None,
+                target_date: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+    // IDs sort opposite to insertion order; the page must continue to follow row_seq.
+    let ids = (0..105)
+        .map(|i| format!("issue_{:03}", 105 - i))
+        .collect::<Vec<_>>();
+    for (i, id) in ids.iter().enumerate() {
+        sqlx::query("INSERT INTO issues(issue_id,organization_id,project_id,team_id,identifier,title,description,priority,workflow_state_id,archived) VALUES($1,'org_acme','project_public','team_public',$2,$1,$3,'high','state_public',$4)")
+            .bind(id).bind(format!("PUB-{}", i+1)).bind((i % 2 == 0).then_some("Description"))
+            .bind(i == 104).execute(postgres.pool()).await.unwrap();
+    }
+    sqlx::query("INSERT INTO cycles(cycle_id,organization_id,team_id,number,starts_on,ends_on) VALUES('cycle_page','org_acme','team_public',1,'2020-01-01','2020-01-14')")
+        .execute(postgres.pool()).await.unwrap();
+    sqlx::query("INSERT INTO milestones(milestone_id,organization_id,project_id,name) VALUES('milestone_page','org_acme','project_public','Page milestone')")
+        .execute(postgres.pool()).await.unwrap();
+    sqlx::query("UPDATE issues SET cycle_id='cycle_page',milestone_id='milestone_page',parent_issue_id=$2,revision=7 WHERE issue_id=$1")
+        .bind(&ids[0]).bind(&ids[104]).execute(postgres.pool()).await.unwrap();
+    for (id, project, team, state, identifier) in [
+        (
+            "issue_private",
+            "project_private",
+            "team_private",
+            "state_private",
+            "PVT-1",
+        ),
+        (
+            "issue_mixed",
+            "project_mixed",
+            "team_public",
+            "state_public",
+            "PUB-106",
+        ),
+    ] {
+        sqlx::query("INSERT INTO issues(issue_id,organization_id,project_id,team_id,identifier,title,priority,workflow_state_id,assignee_subject) VALUES($1,'org_acme',$2,$3,$4,$1,'low',$5,'usr_assignee')")
+            .bind(id).bind(project).bind(team).bind(identifier).bind(state)
+            .execute(postgres.pool()).await.unwrap();
+        sqlx::query("INSERT INTO project_activity(organization_id,project_id,issue_id,actor_subject,operation,entity_kind,entity_id) VALUES('org_acme',$1,$2,'usr_creator','create_issue','issue',$2)")
+            .bind(project).bind(id).execute(postgres.pool()).await.unwrap();
+    }
+    sqlx::query("UPDATE teams SET private=true WHERE team_id='team_private'")
+        .execute(postgres.pool())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO team_members(organization_id,team_id,subject,active) VALUES('org_acme','team_private','usr_member',true),('org_acme','team_private','usr_inactive',false)")
+        .execute(postgres.pool()).await.unwrap();
+    sqlx::query("INSERT INTO labels(label_id,organization_id,name,color) VALUES('label_z','org_acme','Z','#000000'),('label_a','org_acme','A','#ffffff')")
+        .execute(postgres.pool()).await.unwrap();
+    for id in &ids[..2] {
+        sqlx::query("INSERT INTO issue_labels(organization_id,issue_id,label_id) VALUES('org_acme',$1,'label_z'),('org_acme',$1,'label_a')")
+            .bind(id).execute(postgres.pool()).await.unwrap();
+        // Tie timestamps to prove identifier is the history tie-breaker, not insertion order.
+        for (suffix, timestamp) in [
+            ("Z", "2020-01-02"),
+            ("A", "2020-01-02"),
+            ("OLD", "2020-01-01"),
+        ] {
+            sqlx::query("INSERT INTO issue_identifier_aliases(organization_id,issue_id,identifier,created_at) VALUES('org_acme',$1,$2,$3::text::timestamptz)")
+                .bind(id).bind(format!("{id}-{suffix}")).bind(timestamp)
+                .execute(postgres.pool()).await.unwrap();
+        }
+    }
+    sqlx::query("INSERT INTO issue_identifier_aliases(organization_id,issue_id,identifier) SELECT organization_id,issue_id,identifier FROM issues")
+        .execute(postgres.pool()).await.unwrap();
+    ids
+}
+
+async fn assert_issue_page(
+    postgres: &OwnedPostgres,
+    actor: &str,
+    request: &projects::ListIssuesRequest,
+    ids: &[String],
+    has_more: bool,
+) -> projects::ListIssuesResponse {
+    let (page, count) = observed_issue_page(postgres, actor, request, None).await;
+    let page = page.unwrap();
+    assert_eq!(
+        count, 4,
+        "page SQL count must be independent of page length"
+    );
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|item| &item.issue_id)
+            .collect::<Vec<_>>(),
+        ids.iter().collect::<Vec<_>>()
+    );
+    // The unchanged single-item query path is the full response parity oracle.
+    let mut expected = Vec::new();
+    for id in ids {
+        let issue = storage::get_issue(
+            postgres,
+            actor,
+            &projects::GetIssueRequest {
+                organization_id: request.organization_id.clone(),
+                issue_ref: id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        expected.push(serde_json::to_value(issue).unwrap());
+    }
+    let next_cursor = if has_more {
+        let seq: i64 = sqlx::query_scalar("SELECT row_seq FROM issues WHERE issue_id=$1")
+            .bind(ids.last().unwrap())
+            .fetch_one(postgres.pool())
+            .await
+            .unwrap();
+        Some(seq.to_string())
+    } else {
+        None
+    };
+    assert_eq!(
+        serde_json::to_value(&page).unwrap(),
+        serde_json::json!({
+            "items": expected, "next_cursor": next_cursor,
+        })
+    );
+    page
+}
+
+#[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "focused page parity matrix shares one database fixture"
+)]
+async fn issue_pages_batch_visibility_associations_and_cursors() {
+    let Some((database_url, schema_name, postgres)) = prepare().await else {
+        return;
+    };
+    let ids = seed_issue_pages(&postgres).await;
+    let mut request = issue_page_request();
+    let first = assert_issue_page(&postgres, "usr_outsider", &request, &ids[..100], true).await;
+    assert_eq!(
+        first.items[0].previous_identifiers,
+        vec!["issue_105-OLD", "issue_105-A", "issue_105-Z"]
+    );
+    assert_eq!(first.items[0].label_ids, vec!["label_a", "label_z"]);
+    assert_eq!(first.items[0].cycle_id.as_deref(), Some("cycle_page"));
+    assert_eq!(
+        first.items[0].milestone_id.as_deref(),
+        Some("milestone_page")
+    );
+    assert_eq!(
+        first.items[0].parent_issue_id.as_deref(),
+        Some(ids[104].as_str())
+    );
+    assert_eq!(first.items[0].revision, "7");
+    assert_eq!(
+        first.items[1].previous_identifiers,
+        vec!["issue_104-OLD", "issue_104-A", "issue_104-Z"]
+    );
+    assert!(first.items[2].previous_identifiers.is_empty());
+    assert!(first.items[2].label_ids.is_empty());
+    request.limit = 1;
+    assert_issue_page(&postgres, "usr_outsider", &request, &ids[..1], true).await;
+    request.limit = 100;
+    request.after = first.next_cursor;
+    assert_issue_page(&postgres, "usr_outsider", &request, &ids[100..104], false).await;
+    request.limit = 4; // Exactly full final page still has no cursor.
+    assert_issue_page(&postgres, "usr_outsider", &request, &ids[100..104], false).await;
+    request.include_archived = true;
+    let late = assert_issue_page(&postgres, "usr_outsider", &request, &ids[100..104], true).await;
+    request.after = late.next_cursor;
+    assert_issue_page(&postgres, "usr_outsider", &request, &ids[104..], false).await;
+    request.after = Some(i64::MAX.to_string());
+    assert_issue_page(&postgres, "usr_member", &request, &[], false).await;
+    request = issue_page_request();
+    request.organization_id = "org_other".into();
+    assert_issue_page(&postgres, "usr_member", &request, &[], false).await;
+    request = issue_page_request();
+    for (project, expected) in [
+        ("project_private", "issue_private"),
+        ("project_mixed", "issue_mixed"),
+    ] {
+        request.project_id = Some(project.into());
+        for actor in [
+            "usr_outsider",
+            "usr_inactive",
+            "usr_creator",
+            "usr_assignee",
+        ] {
+            assert_issue_page(&postgres, actor, &request, &[], false).await;
+        }
+        assert_issue_page(&postgres, "usr_member", &request, &[expected.into()], false).await;
+    }
+    request.project_id = None;
+    request.team_id = Some("team_private".into());
+    assert_issue_page(
+        &postgres,
+        "usr_member",
+        &request,
+        &["issue_private".into()],
+        false,
+    )
+    .await;
+    request.workflow_state_id = Some("state_public".into());
+    assert_issue_page(&postgres, "usr_member", &request, &[], false).await;
+    request.team_id = Some("team_public".into());
+    assert_issue_page(&postgres, "usr_outsider", &request, &ids[..100], true).await;
+    for limit in [0, -1, 101, i64::MAX] {
+        request.limit = limit;
+        let (result, count) = observed_issue_page(&postgres, "usr_member", &request, None).await;
+        assert!(matches!(
+            result,
+            Err(StorageError::Domain(DomainFailure::InvalidRequest))
+        ));
+        assert_eq!(count, 0);
+    }
+    request.limit = 1;
+    request.after = Some("invalid".into());
+    let (result, count) = observed_issue_page(&postgres, "usr_member", &request, None).await;
+    assert!(matches!(
+        result,
+        Err(StorageError::Domain(DomainFailure::InvalidRequest))
+    ));
+    assert_eq!(count, 0);
+    cleanup(&database_url, &schema_name, postgres).await;
+}
+
+#[tokio::test]
+async fn issue_pages_preserve_disappearing_row_behavior() {
+    let Some((database_url, schema_name, postgres)) = prepare().await else {
+        return;
+    };
+    let ids = seed_issue_pages(&postgres).await;
+    let request = projects::ListIssuesRequest {
+        limit: 1,
+        ..issue_page_request()
+    };
+    let (result, count) = observed_issue_page(
+        &postgres,
+        "usr_outsider",
+        &request,
+        Some((1, ids[0].clone())),
+    )
+    .await;
+    assert_eq!(count, 2);
+    assert!(
+        matches!(result, Err(StorageError::Runtime(RuntimeFailure::PluginFailure { detail }))
+        if detail == "Projects PostgreSQL operation `load listed issue` failed: issue disappeared")
+    );
+
+    // Deletion after the issue row was read leaves its loaded fields intact and its
+    // cascaded associations empty, matching the old loader's statement boundaries.
+    let expected = storage::get_issue(
+        &postgres,
+        "usr_outsider",
+        &projects::GetIssueRequest {
+            organization_id: "org_acme".into(),
+            issue_ref: ids[1].clone(),
+        },
+    )
+    .await
+    .unwrap();
+    let mut expected = serde_json::to_value(expected).unwrap();
+    expected["previous_identifiers"] = serde_json::json!([]);
+    expected["label_ids"] = serde_json::json!([]);
+    let (result, count) = observed_issue_page(
+        &postgres,
+        "usr_outsider",
+        &request,
+        Some((2, ids[1].clone())),
+    )
+    .await;
+    assert_eq!(count, 4);
+    let page = result.unwrap();
+    assert_eq!(serde_json::to_value(&page.items[0]).unwrap(), expected);
+    assert!(page.next_cursor.is_some());
+
+    // A disappearing lookahead row is not loaded and does not invalidate the page.
+    let (result, count) = observed_issue_page(
+        &postgres,
+        "usr_outsider",
+        &request,
+        Some((1, ids[3].clone())),
+    )
+    .await;
+    assert_eq!(count, 4);
+    let page = result.unwrap();
+    assert_eq!(page.items[0].issue_id, ids[2]);
+    assert!(page.next_cursor.is_some());
+    cleanup(&database_url, &schema_name, postgres).await;
+}

@@ -2,7 +2,10 @@
 // signatures and optional generated fields are clearer here than artificial tuple wrappers.
 #![allow(clippy::ref_option, clippy::too_many_arguments, clippy::too_many_lines)]
 
-use std::{collections::BTreeSet, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use lenso_capability_projects as projects;
 use lenso_capability_projects_admin as admin;
@@ -434,13 +437,30 @@ async fn load_issue_value(
     let labels = sqlx::query("SELECT label_id FROM issue_labels WHERE organization_id=$1 AND issue_id=$2 ORDER BY label_id")
         .bind(organization_id).bind(issue_id).fetch_all(&mut *connection).await.map_err(|error| runtime("load issue labels", error))?
         .into_iter().map(|row| row.try_get("label_id").map_err(|error| runtime("decode issue label", error))).collect::<Result<Vec<String>,_>>()?;
+    issue_value(&row, &previous, &labels).map(Some)
+}
+
+fn issue_value(
+    row: &sqlx::postgres::PgRow,
+    previous: &[String],
+    labels: &[String],
+) -> Result<Value, StorageError> {
+    let issue_id: String = row
+        .try_get("issue_id")
+        .map_err(|error| runtime("decode issue", error))?;
+    let organization_id: String = row
+        .try_get("organization_id")
+        .map_err(|error| runtime("decode issue", error))?;
+    let identifier: String = row
+        .try_get("identifier")
+        .map_err(|error| runtime("decode issue", error))?;
     let created_at: OffsetDateTime = row
         .try_get("created_at")
         .map_err(|error| runtime("decode issue", error))?;
     let updated_at: OffsetDateTime = row
         .try_get("updated_at")
         .map_err(|error| runtime("decode issue", error))?;
-    Ok(Some(json!({
+    Ok(json!({
         "issue_id": issue_id, "organization_id": organization_id, "identifier": identifier,
         "previous_identifiers": previous, "project_id": row.try_get::<String,_>("project_id").map_err(|error| runtime("decode issue", error))?,
         "team_id": row.try_get::<String,_>("team_id").map_err(|error| runtime("decode issue", error))?,
@@ -454,7 +474,7 @@ async fn load_issue_value(
         "label_ids": labels, "archived": row.try_get::<bool,_>("archived").map_err(|error| runtime("decode issue", error))?,
         "revision": row.try_get::<i64,_>("revision").map_err(|error| runtime("decode issue", error))?.to_string(),
         "created_at": format_time(created_at)?, "updated_at": format_time(updated_at)?
-    })))
+    }))
 }
 
 async fn resolve_issue_id(
@@ -1152,46 +1172,134 @@ pub(crate) async fn get_issue(
     )
 }
 
+// Every page query uses this sequential connection path. Acceptance instrumentation counts
+// actual executions here, including empty pages, without changing production behavior.
+async fn fetch_issue_page_rows(
+    connection: &mut PgConnection,
+    query: sqlx::query::Query<'_, Postgres, sqlx::postgres::PgArguments>,
+    operation: &'static str,
+) -> Result<Vec<sqlx::postgres::PgRow>, StorageError> {
+    let rows = query
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|error| runtime(operation, error))?;
+    #[cfg(all(test, feature = "postgres-acceptance"))]
+    super::postgres_tests::observe_issue_page_query(connection).await;
+    Ok(rows)
+}
+
 pub(crate) async fn list_issues(
     postgres: &OwnedPostgres,
     actor: &str,
     request: &projects::ListIssuesRequest,
 ) -> Result<projects::ListIssuesResponse, StorageError> {
+    // Also enforce the public bound here so association arrays never exceed 100 IDs.
+    if !super::valid_page(request.limit, &request.after) {
+        return Err(DomainFailure::InvalidRequest.into());
+    }
     let after = parse_cursor(&request.after)?;
     let fetch_limit = request.limit + 1;
-    let rows = sqlx::query("SELECT i.issue_id,i.row_seq FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=$1 AND i.row_seq>$2 AND ($3::text IS NULL OR i.project_id=$3) AND ($4::text IS NULL OR i.team_id=$4) AND ($5::text IS NULL OR i.workflow_state_id=$5) AND ($6 OR NOT i.archived) AND (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$7 AND tm.active)) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams attached ON attached.organization_id=pt.organization_id AND attached.team_id=pt.team_id WHERE pt.organization_id=i.organization_id AND pt.project_id=i.project_id AND attached.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=attached.organization_id AND tm.team_id=attached.team_id AND tm.subject=$7 AND tm.active)) ORDER BY i.row_seq LIMIT $8")
-        .bind(&request.organization_id).bind(after).bind(&request.project_id).bind(&request.team_id).bind(&request.workflow_state_id).bind(request.include_archived).bind(actor).bind(fetch_limit)
-        .fetch_all(postgres.pool()).await.map_err(|error| runtime("list issues", error))?;
-    let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
-    let mut items = Vec::new();
-    let mut next_cursor = None;
     let mut connection = postgres
         .pool()
         .acquire()
         .await
         .map_err(|error| runtime("acquire issue list reader", error))?;
-    for row in rows
+    let rows = fetch_issue_page_rows(&mut connection,
+        sqlx::query("SELECT i.issue_id,i.row_seq FROM issues i JOIN teams t ON t.organization_id=i.organization_id AND t.team_id=i.team_id WHERE i.organization_id=$1 AND i.row_seq>$2 AND ($3::text IS NULL OR i.project_id=$3) AND ($4::text IS NULL OR i.team_id=$4) AND ($5::text IS NULL OR i.workflow_state_id=$5) AND ($6 OR NOT i.archived) AND (NOT t.private OR EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=t.organization_id AND tm.team_id=t.team_id AND tm.subject=$7 AND tm.active)) AND NOT EXISTS (SELECT 1 FROM project_teams pt JOIN teams attached ON attached.organization_id=pt.organization_id AND attached.team_id=pt.team_id WHERE pt.organization_id=i.organization_id AND pt.project_id=i.project_id AND attached.private AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.organization_id=attached.organization_id AND tm.team_id=attached.team_id AND tm.subject=$7 AND tm.active)) ORDER BY i.row_seq LIMIT $8")
+        .bind(&request.organization_id).bind(after).bind(&request.project_id).bind(&request.team_id).bind(&request.workflow_state_id).bind(request.include_archived).bind(actor).bind(fetch_limit),
+        "list issues",
+    ).await?;
+    let has_more = i64::try_from(rows.len()).is_ok_and(|count| count > request.limit);
+    let page = rows
         .into_iter()
         .take(usize::try_from(request.limit).unwrap_or(0))
-    {
-        let issue_id: String = row
+        .map(|row| {
+            Ok((
+                row.try_get::<String, _>("issue_id")
+                    .map_err(|error| runtime("decode issue cursor", error))?,
+                row.try_get::<i64, _>("row_seq")
+                    .map_err(|error| runtime("decode issue cursor", error))?,
+            ))
+        })
+        .collect::<Result<Vec<_>, StorageError>>()?;
+    let issue_ids = page.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>();
+
+    // Keep selection separate from loading: a selected row that disappears is still an
+    // error, and the lookahead row is never materialized. No transaction is introduced.
+    let rows = fetch_issue_page_rows(&mut connection,
+        sqlx::query("SELECT issue_id,organization_id,identifier,project_id,team_id,title,description,priority,workflow_state_id,cycle_id,milestone_id,parent_issue_id,archived,revision,created_at,updated_at FROM issues WHERE organization_id=$1 AND issue_id=ANY($2)")
+            .bind(&request.organization_id).bind(&issue_ids),
+        "load issue page",
+    ).await?;
+    let mut issues = rows
+        .into_iter()
+        .map(|row| {
+            let id: String = row
+                .try_get("issue_id")
+                .map_err(|error| runtime("decode issue", error))?;
+            Ok((id, row))
+        })
+        .collect::<Result<BTreeMap<_, _>, StorageError>>()?;
+    if issues.len() != page.len() {
+        return Err(runtime("load listed issue", "issue disappeared"));
+    }
+    let aliases = fetch_issue_page_rows(&mut connection,
+        sqlx::query("SELECT issue_id,identifier FROM issue_identifier_aliases WHERE organization_id=$1 AND issue_id=ANY($2) ORDER BY issue_id,created_at,identifier")
+            .bind(&request.organization_id).bind(&issue_ids),
+        "load issue page identifier aliases",
+    ).await?;
+    let mut previous = BTreeMap::<String, Vec<String>>::new();
+    for alias in aliases {
+        let id: String = alias
             .try_get("issue_id")
-            .map_err(|error| runtime("decode issue cursor", error))?;
-        let row_seq: i64 = row
-            .try_get("row_seq")
-            .map_err(|error| runtime("decode issue cursor", error))?;
-        let value = load_issue_value(&mut connection, &request.organization_id, &issue_id)
-            .await?
-            .ok_or_else(|| runtime("load listed issue", "issue disappeared"))?;
-        items.push(
-            serde_json::from_value(value)
-                .map_err(|error| runtime("decode issue list item", error))?,
-        );
-        next_cursor = Some(row_seq.to_string());
+            .map_err(|error| runtime("decode issue alias", error))?;
+        let identifier: String = alias
+            .try_get("identifier")
+            .map_err(|error| runtime("decode issue alias", error))?;
+        // Compare with the loaded identifier, just as the single-item loader does.
+        if let Some(row) = issues.get(&id) {
+            let current: String = row
+                .try_get("identifier")
+                .map_err(|error| runtime("decode issue", error))?;
+            if identifier != current {
+                previous.entry(id).or_default().push(identifier);
+            }
+        }
     }
-    if !has_more {
-        next_cursor = None;
+    let rows = fetch_issue_page_rows(&mut connection,
+        sqlx::query("SELECT issue_id,label_id FROM issue_labels WHERE organization_id=$1 AND issue_id=ANY($2) ORDER BY issue_id,label_id")
+            .bind(&request.organization_id).bind(&issue_ids),
+        "load issue page labels",
+    ).await?;
+    let mut labels = BTreeMap::<String, Vec<String>>::new();
+    for row in rows {
+        let id: String = row
+            .try_get("issue_id")
+            .map_err(|error| runtime("decode issue label", error))?;
+        let label: String = row
+            .try_get("label_id")
+            .map_err(|error| runtime("decode issue label", error))?;
+        labels.entry(id).or_default().push(label);
     }
+    let next_cursor = if has_more {
+        page.last().map(|(_, seq)| seq.to_string())
+    } else {
+        None
+    };
+    let items = page
+        .into_iter()
+        .map(|(id, _)| {
+            let row = issues
+                .remove(&id)
+                .ok_or_else(|| runtime("load listed issue", "issue disappeared"))?;
+            let value = issue_value(
+                &row,
+                &previous.remove(&id).unwrap_or_default(),
+                &labels.remove(&id).unwrap_or_default(),
+            )?;
+            serde_json::from_value(value).map_err(|error| runtime("decode issue list item", error))
+        })
+        .collect::<Result<Vec<_>, StorageError>>()?;
     Ok(projects::ListIssuesResponse { items, next_cursor })
 }
 
