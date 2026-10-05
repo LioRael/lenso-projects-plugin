@@ -34,9 +34,13 @@ Requires exactly one provider of:
 - `lenso.secrets@1`
 
 The separate `lenso.projects.agent-tools` adapter provides
-`lenso.agent.tool-provider@2` and requires exactly one provider of both
+`lenso.agent.tool-provider@2` and `lenso.agent.prompt-provider@1`, and requires
+exactly one provider of both
 `lenso.projects@1` and `lenso.projects-collaboration@1`. It owns only Agent
-catalog and argument/result adaptation. Removing it removes the Agent surface
+catalog, workflow instructions and argument/result adaptation. Its
+self-assignment Tool verifies the Auth-issued user subject; the original
+Collaboration provider remains the final assignment authority. The Agent Web
+Plugin owns verified Issue links from its configured App origin. Removing it removes the Agent surface
 without removing Projects facts or changing the business Capabilities.
 
 ## Authorization

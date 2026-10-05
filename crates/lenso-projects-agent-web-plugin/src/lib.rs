@@ -1,6 +1,7 @@
 //! Authenticated ingress over one explicitly bound Projects Tool provider.
 use lenso::Port;
 use lenso_auth_sdk::{AuthOutcome, CredentialEvidence, authenticate_request, decode_auth_response};
+use lenso_capability_agent_prompt_provider as prompts;
 use lenso_capability_agent_tool_provider as tools;
 use lenso_capability_auth as auth;
 use lenso_capability_http_endpoint::{
@@ -13,11 +14,52 @@ use serde::{Deserialize, Serialize};
 const MAX_REQUEST: usize = 300_000;
 const MAX_RESPONSE: usize = 2_097_152;
 
-#[lenso::plugin]
+/// Public navigation authority selected by the App; absent for legacy installs.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, lenso::PluginConfig)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectsAgentWebConfig {
+    #[serde(default)]
+    pub origin: Option<String>,
+}
+
+fn clean_origin(value: &str) -> Option<url::Url> {
+    let origin = url::Url::parse(value).ok()?;
+    let local = matches!(origin.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    if !(origin.scheme() == "https" || (origin.scheme() == "http" && local))
+        || origin.host_str().is_none()
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+        || origin.path() != "/"
+        || origin.query().is_some()
+        || origin.fragment().is_some()
+    {
+        return None;
+    }
+    Some(origin)
+}
+
+fn validate_config(config: &ProjectsAgentWebConfig) -> Result<(), RuntimeFailure> {
+    if config
+        .origin
+        .as_deref()
+        .is_some_and(|origin| clean_origin(origin).is_none())
+    {
+        return Err(RuntimeFailure::InvalidResolvedPlan {
+            detail: "Projects Agent origin must be a clean HTTPS origin or local HTTP origin"
+                .into(),
+        });
+    }
+    Ok(())
+}
+
+#[lenso::plugin(validate=validate_config)]
 #[derive(Clone, Debug)]
 struct ProjectsAgentWebPlugin {
+    #[config]
+    config: ProjectsAgentWebConfig,
     auth: Port<auth::AuthClient>,
     tools: Port<tools::ToolProviderClient>,
+    prompts: Port<prompts::PromptProviderClient>,
 }
 
 #[derive(Deserialize)]
@@ -29,6 +71,27 @@ struct ToolInput {
 
 #[endpoint]
 impl ProjectsAgentWebPlugin {
+    /// Public, user-independent domain instructions from the bound Projects owner.
+    #[get("projects.agent.prompts", "/projects/agent/prompts")]
+    async fn prompts(
+        &self,
+        context: InvocationContext,
+        _request: HandleRequest,
+    ) -> Result<HandleResponse, EndpointHandleInvocationError> {
+        match self
+            .prompts
+            .contribute_with_context(context, prompts::ContributeRequest {})
+            .await
+        {
+            Ok(response) => reply(200, &response),
+            Err(prompts::PromptProviderInvocationError::Domain(_)) => {
+                problem(503, "prompts_unavailable")
+            }
+            Err(prompts::PromptProviderInvocationError::Runtime(error)) => {
+                Err(EndpointHandleInvocationError::Runtime(error))
+            }
+        }
+    }
     /// Public API descriptions only. Execution always authenticates independently.
     #[get("projects.agent.manifest", "/projects/agent/manifest")]
     async fn manifest(
@@ -98,6 +161,7 @@ impl ProjectsAgentWebPlugin {
         let Ok(arguments_json) = input.arguments_json.parse() else {
             return problem(400, "invalid_arguments");
         };
+        let tool_name = input.name.clone();
         match self
             .tools
             .execute_with_context(
@@ -109,7 +173,12 @@ impl ProjectsAgentWebPlugin {
             )
             .await
         {
-            Ok(response) => reply(200, &response),
+            Ok(mut response) => {
+                if let Some(origin) = self.config.origin.as_deref() {
+                    project_issue_links(origin, &tool_name, &mut response);
+                }
+                reply(200, &response)
+            }
             Err(tools::ToolProviderExecuteInvocationError::Runtime(error)) => {
                 Err(EndpointHandleInvocationError::Runtime(error))
             }
@@ -129,6 +198,49 @@ impl ProjectsAgentWebPlugin {
                     }
                 };
                 reply(status, &error)
+            }
+        }
+    }
+}
+
+fn project_issue_links(origin: &str, tool_name: &str, result: &mut tools::ExecuteResponse) {
+    if !matches!(
+        tool_name,
+        "projects_get_issue"
+            | "projects_list_issues"
+            | "projects_create_issue"
+            | "projects_update_issue"
+            | "projects_move_issue"
+    ) {
+        return;
+    }
+    let Some(origin) = clean_origin(origin) else {
+        return;
+    };
+    let Ok(mut body) = serde_json::from_str::<serde_json::Value>(&result.content) else {
+        return;
+    };
+    let link = |issue: &serde_json::Value| {
+        let id = issue.get("issue_id")?.as_str()?;
+        let organization = issue.get("organization_id")?.as_str()?;
+        let title = issue.get("title")?.as_str()?;
+        let mut url = origin.clone();
+        url.set_path("/projects");
+        url.query_pairs_mut()
+            .append_pair("organization_id", organization)
+            .append_pair("issue", id);
+        Some(serde_json::json!({"title":title,"url":url.as_str(),"issue_id":id}))
+    };
+    let links = if let Some(items) = body.get("items").and_then(serde_json::Value::as_array) {
+        items.iter().filter_map(link).collect::<Vec<_>>()
+    } else {
+        link(&body).into_iter().collect()
+    };
+    if !links.is_empty() {
+        if let Some(object) = body.as_object_mut() {
+            object.insert("_links".into(), serde_json::Value::Array(links));
+            if let Ok(content) = serde_json::to_string_pretty(&body) {
+                result.content = content;
             }
         }
     }
@@ -217,3 +329,79 @@ fn reply(
 
 /// Retains this linked Plugin in native Host assemblies.
 pub fn link() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn output(value: &serde_json::Value) -> tools::ExecuteResponse {
+        tools::ExecuteResponse {
+            content: value.to_string(),
+            content_type: tools::ContentType::Text,
+            content_blocks: None,
+            metadata_json: "{}".parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn issue_links_use_only_clean_configured_origin_and_preserve_domain_fields() {
+        let issue = serde_json::json!({"issue_id":"a&issue=other#x","organization_id":"org?x","title":"An issue","revision":"3","description":"keep me","origin":"https://attacker.example"});
+        let mut response = output(&issue);
+        project_issue_links("https://app.example", "projects_get_issue", &mut response);
+        let projected: serde_json::Value = serde_json::from_str(&response.content).unwrap();
+        for (key, value) in issue.as_object().unwrap() {
+            assert_eq!(&projected[key], value);
+        }
+        let link = &projected["_links"][0];
+        let url = url::Url::parse(link["url"].as_str().unwrap()).unwrap();
+        assert_eq!(url.origin().ascii_serialization(), "https://app.example");
+        assert_eq!(url.path(), "/projects");
+        assert_eq!(
+            url.query_pairs().collect::<Vec<_>>(),
+            vec![
+                ("organization_id".into(), "org?x".into()),
+                ("issue".into(), "a&issue=other#x".into())
+            ]
+        );
+        assert_eq!(link["title"], "An issue");
+        let list = serde_json::json!({"items":[issue],"next_cursor":"cursor"});
+        let mut response = output(&list);
+        project_issue_links("https://app.example", "projects_list_issues", &mut response);
+        let projected: serde_json::Value = serde_json::from_str(&response.content).unwrap();
+        assert_eq!(projected["items"], list["items"]);
+        assert_eq!(projected["next_cursor"], "cursor");
+        assert_eq!(projected["_links"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn unsafe_origins_and_non_issue_tools_never_project_links() {
+        for origin in [
+            "https://user:password@app.example",
+            "https://app.example/path",
+            "https://app.example?x",
+            "https://app.example#x",
+            "http://remote.example",
+            "file:///tmp/issues",
+        ] {
+            assert!(
+                validate_config(&ProjectsAgentWebConfig {
+                    origin: Some(origin.into())
+                })
+                .is_err()
+            );
+            let mut response = output(
+                &serde_json::json!({"issue_id":"x","organization_id":"org","title":"title"}),
+            );
+            let original = response.content.clone();
+            project_issue_links(origin, "projects_get_issue", &mut response);
+            assert_eq!(response.content, original);
+        }
+        assert!(validate_config(&ProjectsAgentWebConfig::default()).is_ok());
+        assert!(clean_origin("http://127.0.0.1:8080").is_some());
+        let mut response =
+            output(&serde_json::json!({"issue_id":"x","organization_id":"org","title":"title"}));
+        let original = response.content.clone();
+        project_issue_links("https://app.example", "projects_add_comment", &mut response);
+        assert_eq!(response.content, original);
+    }
+}

@@ -21,6 +21,9 @@ lenso-capability-http-endpoint = "0.3.0"
 futures = "0.3"
 lenso = { version = "0.5.17" }
 lenso-capability-agent-tool-provider = { version = "0.2.2" }
+# Existing Agent-owned contract; not yet published to crates.io.
+lenso-capability-agent-prompt-provider = { git = "https://github.com/LioRael/lenso-agent", rev = "205157ad29b4e73bc2bf4d4b7b96525e2dbecfc4" }
+url = "2.5"
 lenso-auth-sdk = { version = "0.2.3" }
 lenso-capability-access-control = { version = "0.2.0" }
 lenso-capability-data-export-source = { version = "0.2.0" }

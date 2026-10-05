@@ -18,6 +18,8 @@ lenso-auth-sdk.workspace = true
 lenso-capability-auth.workspace = true
 lenso-capability-http-endpoint.workspace = true
 lenso-capability-agent-tool-provider.workspace = true
+lenso-capability-agent-prompt-provider.workspace = true
+url.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

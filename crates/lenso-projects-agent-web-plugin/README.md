@@ -7,7 +7,7 @@ Account Auth owns sessions, and Projects retains membership, RBAC, private Team,
 revision and idempotency enforcement.
 
 Bind its Auth requirement to the application's Account Auth provider and its Tool
-Provider requirement to `lenso.projects.agent-tools`. The Web ingress must select a
+Provider and PromptProvider requirements to `lenso.projects.agent-tools`. The Web ingress must select a
 session credential from its configured native-client authorization header policy;
 the endpoint does not accept an actor or credential in JSON. Cookie clients remain
 subject to the Web ingress's CSRF policy. Authentication runs for every catalog and
@@ -16,6 +16,8 @@ execution request, so revoked or expired sessions cannot reuse an earlier assert
 - `GET /projects/agent/manifest` publicly returns only static Tool descriptions and
   schemas from the bound Projects Tools adapter, with no user or resource data. This
   allows Agent Generation preparation before login. It grants no execution access.
+- `GET /projects/agent/prompts` publicly returns static workflow instructions
+  using the existing PromptProvider contribution response.
 - `GET /projects/agent/tools` returns the generated Tool Provider catalog.
 - `POST /projects/agent/tools/execute` accepts only `name` and `arguments_json`.
   `arguments_json` is a JSON-encoded string matching the selected Tool schema.
@@ -50,3 +52,34 @@ Use a narrowed grant instead of copying the complete login audience. The
 [Agent acceptance App](https://github.com/LioRael/lenso-agent/tree/main/scripts/projects-acceptance)
 exercises both permitted updates and denial of an unlisted final operation with
 real Auth, Organization, ACL and Projects providers backed by PostgreSQL.
+
+## Explicit App configuration
+
+The existing Tools Plugin owns `projects_assign_issue_to_me` and its workflow
+instructions. Set its `auth_issuer` and `auth_assertion_public_key` to the same
+Auth issuer and public verification key used by Projects. Self assignment
+verifies the current user assertion and exact Tool execute and final assignment
+operation audiences; Tool arguments cannot override its subject. Ordinary Tools
+keep their prior behavior with an empty configuration. The new self-assignment
+Tool fails closed until verification is configured.
+
+Configure this Web Plugin with an optional clean `origin` for Issue `_links`:
+
+```toml
+origin = "https://projects.example"
+```
+
+Only this owner configuration determines link origins; request headers and Tool
+arguments cannot choose them. Without `origin`, old responses stay unchanged.
+Link projection preserves business fields and percent-encodes identifiers.
+Opening a link still requires the App browser session and business authorization.
+
+Existing endpoint paths remain compatible. New App assemblies must bind the
+Web Plugin's PromptProvider requirement to the existing Tools Plugin. Agent
+connections must explicitly configure `catalog_path = "/projects/agent/manifest"`,
+`execute_path = "/projects/agent/tools/execute"` and
+`prompts_path = "/projects/agent/prompts"`.
+
+PromptProvider is the existing Agent-owned contract. Until a registry release
+exists, these unpublished adapters consume its pinned Agent source revision;
+this change does not publish or deploy either repository.

@@ -763,9 +763,9 @@ dependencies = [
 
 [[package]]
 name = "lenso-app-plan"
-version = "0.4.1"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae6e028eab9a55cd6562e332867c3378a0d97a68cd33d3d28e4a67db100adc3"
+checksum = "0fa1393e57d198ae68a8f5c4bb5a16d4eaa2267116be8de34e920a55fcf28c7e"
 dependencies = [
  "serde",
  "serde_json",
@@ -793,6 +793,19 @@ name = "lenso-capability-access-control"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f0b295e5ff855ee3d09b34c748cc8c7f391bba689d389cc991ed9a08dc92127"
+dependencies = [
+ "futures",
+ "lenso-contract-runtime",
+ "lenso-kernel",
+ "lenso-plugin-authoring",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lenso-capability-agent-prompt-provider"
+version = "0.1.0"
+source = "git+https://github.com/LioRael/lenso-agent?rev=205157ad29b4e73bc2bf4d4b7b96525e2dbecfc4#205157ad29b4e73bc2bf4d4b7b96525e2dbecfc4"
 dependencies = [
  "futures",
  "lenso-contract-runtime",
@@ -1038,9 +1051,9 @@ dependencies = [
 
 [[package]]
 name = "lenso-kernel"
-version = "0.3.6"
+version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c536ea88ba9579dfd31d7074b8758b8a4d90e760cfecf4db22dea2c85425147"
+checksum = "8c1b891749134263ae5c9ac78ad89124626f384ca8bbfc441a72ab277339e629"
 dependencies = [
  "futures",
  "lenso-app-plan",
@@ -1100,12 +1113,19 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "lenso",
+ "lenso-app-plan",
+ "lenso-auth-sdk",
+ "lenso-capability-agent-prompt-provider",
  "lenso-capability-agent-tool-provider",
  "lenso-capability-projects",
  "lenso-capability-projects-collaboration",
  "lenso-kernel",
+ "lenso-native-adapter",
+ "lenso-runner",
  "serde",
  "serde_json",
+ "time",
+ "tokio",
 ]
 
 [[package]]
@@ -1115,6 +1135,7 @@ dependencies = [
  "lenso",
  "lenso-app-plan",
  "lenso-auth-sdk",
+ "lenso-capability-agent-prompt-provider",
  "lenso-capability-agent-tool-provider",
  "lenso-capability-auth",
  "lenso-capability-http-endpoint",
@@ -1125,6 +1146,7 @@ dependencies = [
  "serde_json",
  "time",
  "tokio",
+ "url",
 ]
 
 [[package]]

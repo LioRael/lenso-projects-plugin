@@ -6,6 +6,7 @@ use lenso_auth_sdk::{
     ActorAssertion, ActorAssertionIssuer, ActorProjectionError, FixedClock, TypedActor, Validity,
     audience, authenticated_response,
 };
+use lenso_capability_agent_prompt_provider as prompts;
 use lenso_capability_agent_tool_provider as tools;
 use lenso_capability_auth as auth;
 use lenso_capability_http_endpoint as http;
@@ -46,6 +47,7 @@ struct Fixtures {
     issuer: ActorAssertionIssuer,
     revoked: Arc<AtomicBool>,
     calls: Arc<AtomicUsize>,
+    metadata_failure: Arc<AtomicUsize>,
 }
 impl NativePluginFactory for Fixtures {
     fn package_id(&self) -> &'static str {
@@ -58,6 +60,7 @@ impl NativePluginFactory for Fixtures {
         Ok(NativePluginInstance::new(vec![
             Rc::new(auth::AuthEndpoint::new(self.clone())),
             Rc::new(tools::ToolProviderEndpoint::new(self.clone())),
+            Rc::new(prompts::PromptProviderEndpoint::new(self.clone())),
         ]))
     }
 }
@@ -127,7 +130,16 @@ impl tools::ToolProviderProvider for Fixtures {
         _: tools::CatalogRequest,
     ) -> NativeRequestFuture<tools::ToolProviderCatalog> {
         // Projects tool descriptions contain no user data or execution authority.
-        Box::pin(async { Ok(Ok(tools::CatalogResponse { tools: vec![] })) })
+        let failure = self.metadata_failure.load(Ordering::SeqCst);
+        Box::pin(async move {
+            match failure {
+                1 => Ok(Err(tools::CatalogError::CatalogInvalid)),
+                2 => Err(RuntimeFailure::Unavailable {
+                    capability: tools::CAPABILITY_ID,
+                }),
+                _ => Ok(Ok(tools::CatalogResponse { tools: vec![] })),
+            }
+        })
     }
     fn execute(
         &self,
@@ -152,8 +164,35 @@ impl tools::ToolProviderProvider for Fixtures {
     }
 }
 
+impl prompts::PromptProviderProvider for Fixtures {
+    fn contribute(
+        &self,
+        _: InvocationContext,
+        _: prompts::ContributeRequest,
+    ) -> NativeRequestFuture<prompts::PromptProvider> {
+        let failure = self.metadata_failure.load(Ordering::SeqCst);
+        Box::pin(async move {
+            match failure {
+                1 => Ok(Err(prompts::ContributeError::ContributionInvalid)),
+                2 => Err(RuntimeFailure::Unavailable {
+                    capability: prompts::CAPABILITY_ID,
+                }),
+                _ => Ok(Ok(prompts::ContributeResponse {
+                    contributions: vec![prompts::ContributeResponseContributionsItem {
+                        id: "projects-workflow".into(),
+                        kind: prompts::ContributeResponseContributionsItemKind::Instruction,
+                        version: "1".into(),
+                        content: "Use Projects tools and verified links.".into(),
+                    }],
+                })),
+            }
+        })
+    }
+}
+
 fn plan() -> ResolvedAppPlan {
     let web = PluginInstancePlan::new("web", "lenso.projects.agent-web")
+        .with_configuration("{}")
         .with_capability(CapabilityEndpointPlan::new(
             http::CAPABILITY_ID,
             http::DESCRIPTOR_VERSION,
@@ -166,6 +205,10 @@ fn plan() -> ResolvedAppPlan {
         .with_requirement(CapabilityRequirementPlan::one(
             tools::CAPABILITY_ID,
             tools::DESCRIPTOR_VERSION,
+        ))
+        .with_requirement(CapabilityRequirementPlan::one(
+            prompts::CAPABILITY_ID,
+            prompts::DESCRIPTOR_VERSION,
         ));
     let fixtures = PluginInstancePlan::new("fixtures", "test.ingress")
         .with_capability(CapabilityEndpointPlan::new(
@@ -177,6 +220,11 @@ fn plan() -> ResolvedAppPlan {
             tools::CAPABILITY_ID,
             tools::DESCRIPTOR_VERSION,
             [tools::CATALOG_OPERATION, tools::EXECUTE_OPERATION],
+        ))
+        .with_capability(CapabilityEndpointPlan::new(
+            prompts::CAPABILITY_ID,
+            prompts::DESCRIPTOR_VERSION,
+            [prompts::CONTRIBUTE_OPERATION],
         ));
     let caller = PluginInstancePlan::new("caller", "test.caller").with_requirement(
         CapabilityRequirementPlan::one(http::CAPABILITY_ID, http::DESCRIPTOR_VERSION),
@@ -184,6 +232,12 @@ fn plan() -> ResolvedAppPlan {
     AppComposition::new(
         vec![web, fixtures, caller],
         vec![
+            CapabilityBinding::new(
+                "web",
+                prompts::CAPABILITY_ID,
+                prompts::DESCRIPTOR_VERSION,
+                "fixtures",
+            ),
             CapabilityBinding::new(
                 "caller",
                 http::CAPABILITY_ID,
@@ -237,6 +291,7 @@ async fn ingress_authenticates_each_call_and_preserves_failure_boundaries() {
                 issuer: ActorAssertionIssuer::new("test.auth", b"test-ingress-signing"),
                 revoked: Arc::new(AtomicBool::new(false)),
                 calls: Arc::new(AtomicUsize::new(0)),
+                metadata_failure: Arc::new(AtomicUsize::new(0)),
             };
             let app = Kernel::start_native(
                 plan(),
@@ -262,6 +317,44 @@ async fn ingress_authenticates_each_call_and_preserves_failure_boundaries() {
                 serde_json::from_slice::<serde_json::Value>(descriptions.body.as_ref()).unwrap(),
                 serde_json::json!({"tools":[]})
             );
+            for (route, path) in [
+                ("projects.agent.manifest", "/projects/agent/manifest"),
+                ("projects.agent.prompts", "/projects/agent/prompts"),
+            ] {
+                let mut public_request = request(None, "");
+                public_request.method = "GET".into();
+                public_request.path = path.into();
+                public_request.route_id = route.into();
+                let response = app
+                    .invoke::<http::EndpointHandle>(
+                        "caller",
+                        http::HANDLE_OPERATION,
+                        public_request.clone(),
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(response.status, 200);
+                if route == "projects.agent.prompts" {
+                    let body: prompts::ContributeResponse =
+                        serde_json::from_slice(response.body.as_ref()).unwrap();
+                    assert_eq!(body.contributions[0].id, "projects-workflow");
+                }
+                fixture.metadata_failure.store(1, Ordering::SeqCst);
+                assert_eq!(
+                    app.invoke::<http::EndpointHandle>(
+                        "caller",
+                        http::HANDLE_OPERATION,
+                        public_request.clone()
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                    503
+                );
+                fixture.metadata_failure.store(0, Ordering::SeqCst);
+            }
             let body = r#"{"name":"read","arguments_json":"{}"}"#;
             for (credential, body, status) in [
                 (None, body, 401),
@@ -308,16 +401,6 @@ async fn ingress_authenticates_each_call_and_preserves_failure_boundaries() {
                         .contains("private-session-credential")
                 );
             }
-            let runtime = r#"{"name":"runtime","arguments_json":"{}"}"#;
-            assert!(
-                app.invoke::<http::EndpointHandle>(
-                    "caller",
-                    http::HANDLE_OPERATION,
-                    request(Some("private-session-credential"), runtime)
-                )
-                .await
-                .is_err()
-            );
             fixture.revoked.store(true, Ordering::SeqCst);
             let response = app
                 .invoke::<http::EndpointHandle>(
@@ -329,11 +412,80 @@ async fn ingress_authenticates_each_call_and_preserves_failure_boundaries() {
                 .unwrap()
                 .unwrap();
             assert_eq!(response.status, 401);
-            assert_eq!(fixture.calls.load(Ordering::SeqCst), 4);
+            assert_eq!(fixture.calls.load(Ordering::SeqCst), 3);
             assert_eq!(
                 app.shutdown(StdDuration::from_secs(1)).await,
                 ShutdownOutcome::Clean
             );
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn runtime_failures_remain_runtime_failures_in_isolated_kernels() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            lenso_projects_agent_web_plugin::link();
+            for (route, path, method, metadata_failure, credential, body) in [
+                (
+                    "projects.agent.manifest",
+                    "/projects/agent/manifest",
+                    "GET",
+                    2,
+                    None,
+                    "",
+                ),
+                (
+                    "projects.agent.prompts",
+                    "/projects/agent/prompts",
+                    "GET",
+                    2,
+                    None,
+                    "",
+                ),
+                (
+                    "projects.agent.execute",
+                    "/projects/agent/tools/execute",
+                    "POST",
+                    0,
+                    Some("private-session-credential"),
+                    r#"{"name":"runtime","arguments_json":"{}"}"#,
+                ),
+            ] {
+                let fixture = Fixtures {
+                    issuer: ActorAssertionIssuer::new("test.auth", b"test-ingress-signing"),
+                    revoked: Arc::new(AtomicBool::new(false)),
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    metadata_failure: Arc::new(AtomicUsize::new(metadata_failure)),
+                };
+                let app = Kernel::start_native(
+                    plan(),
+                    TokioDriver::new(),
+                    NativePluginRegistry::new()
+                        .with_linked_factories()
+                        .with_factory(fixture)
+                        .with_factory(Caller),
+                )
+                .await
+                .unwrap();
+                let mut failure_request = request(credential, body);
+                failure_request.route_id = route.into();
+                failure_request.path = path.into();
+                failure_request.method = method.into();
+                assert!(
+                    app.invoke::<http::EndpointHandle>(
+                        "caller",
+                        http::HANDLE_OPERATION,
+                        failure_request
+                    )
+                    .await
+                    .is_err()
+                );
+                assert_eq!(
+                    app.shutdown(StdDuration::from_secs(1)).await,
+                    ShutdownOutcome::Clean
+                );
+            }
         })
         .await;
 }

@@ -1,6 +1,10 @@
 //! Agent-facing Tools over explicitly bound Projects capabilities.
 
 use lenso::prelude::*;
+use lenso_auth_sdk::{
+    ActorAssertion, ActorAssertionVerifier, ActorProjectionError, FixedClock, TypedActor,
+};
+use lenso_capability_agent_prompt_provider as prompts;
 use lenso_capability_agent_tool_provider::{
     self as tool_contract, CatalogRequest, CatalogResponse, ContentType, ExecuteError,
     ExecuteRequest, ExecuteResponse, ExecutionFailedPayload, ToolDefinition, ToolExecutionClass,
@@ -13,7 +17,8 @@ use lenso_capability_projects_collaboration::{
     self as collaboration, AddCommentRequest, ListCommentsRequest,
 };
 use lenso_kernel::RuntimeFailure;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use time::OffsetDateTime;
 
 pub const LIST_PROJECTS_TOOL: &str = "projects_list_projects";
 pub const GET_PROJECT_TOOL: &str = "projects_get_project";
@@ -25,16 +30,126 @@ pub const UPDATE_ISSUE_TOOL: &str = "projects_update_issue";
 pub const MOVE_ISSUE_TOOL: &str = "projects_move_issue";
 pub const LIST_COMMENTS_TOOL: &str = "projects_list_comments";
 pub const ADD_COMMENT_TOOL: &str = "projects_add_comment";
+pub const ASSIGN_SELF_TOOL: &str = "projects_assign_issue_to_me";
 
-#[lenso::plugin]
+/// Verification authority selected by the App, shared with its Projects owner.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, lenso::PluginConfig)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectsAgentToolsConfig {
+    #[serde(default)]
+    pub auth_issuer: Option<String>,
+    #[serde(default)]
+    pub auth_assertion_public_key: Option<String>,
+}
+
+impl ProjectsAgentToolsConfig {
+    fn verifier(&self) -> Result<Option<ActorAssertionVerifier>, RuntimeFailure> {
+        let (Some(issuer), Some(public_key)) = (&self.auth_issuer, &self.auth_assertion_public_key)
+        else {
+            return if self.auth_issuer.is_none() && self.auth_assertion_public_key.is_none() {
+                Ok(None)
+            } else {
+                Err(RuntimeFailure::InvalidResolvedPlan {
+                    detail: "Projects Agent Auth issuer and verification key must be configured together".into(),
+                })
+            };
+        };
+        if issuer.trim().is_empty() {
+            return Err(RuntimeFailure::InvalidResolvedPlan {
+                detail: "Projects Agent Auth issuer is required".into(),
+            });
+        }
+        ActorAssertionVerifier::from_public_key_base64(issuer.clone(), public_key)
+            .map(Some)
+            .map_err(|_| RuntimeFailure::InvalidResolvedPlan {
+                detail: "Projects Agent Auth verification key is invalid".into(),
+            })
+    }
+}
+
+fn validate_config(config: &ProjectsAgentToolsConfig) -> Result<(), RuntimeFailure> {
+    config.verifier().map(|_| ())
+}
+
+#[derive(Debug)]
+struct AuthenticatedUser(String);
+impl TypedActor for AuthenticatedUser {
+    fn from_assertion(assertion: &ActorAssertion) -> Result<Self, ActorProjectionError> {
+        if assertion.actor_kind() != "user" {
+            return Err(ActorProjectionError::UnexpectedActorKind {
+                expected: "user".into(),
+                actual: assertion.actor_kind().into(),
+            });
+        }
+        Ok(Self(assertion.subject().to_owned()))
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssignSelfRequest {
+    organization_id: String,
+    issue_id: String,
+    expected_revision: String,
+    idempotency_key: String,
+}
+
+fn self_assignment(
+    config: &ProjectsAgentToolsConfig,
+    context: &Ctx,
+    request: &ExecuteRequest,
+) -> PluginResult<collaboration::SetIssueAssigneeRequest, ExecuteError> {
+    let arguments = decode::<AssignSelfRequest>(request)?;
+    let verifier = config
+        .verifier()
+        .map_err(PluginError::runtime)?
+        .ok_or_else(|| PluginError::domain(ExecuteError::PermissionDenied))?;
+    let clock = FixedClock::new(OffsetDateTime::now_utc());
+    let user = verifier
+        .project_context::<AuthenticatedUser>(
+            context,
+            tool_contract::CAPABILITY_ID,
+            tool_contract::EXECUTE_OPERATION,
+            &clock,
+        )
+        .map_err(|_| PluginError::domain(ExecuteError::PermissionDenied))?;
+    // The downstream owner independently verifies the same sealed assertion,
+    // membership, permission, visibility, revision and idempotency on every call.
+    verifier
+        .project_context::<AuthenticatedUser>(
+            context,
+            collaboration::CAPABILITY_ID,
+            collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+            &clock,
+        )
+        .map_err(|_| PluginError::domain(ExecuteError::PermissionDenied))?;
+    Ok(collaboration::SetIssueAssigneeRequest {
+        organization_id: arguments.organization_id,
+        issue_id: arguments.issue_id,
+        expected_revision: arguments.expected_revision,
+        idempotency_key: arguments.idempotency_key,
+        assignee_subject: Some(user.0),
+    })
+}
+
+#[lenso::plugin(validate=validate_config)]
 #[derive(Clone, Debug)]
 struct ProjectsAgentToolsPlugin {
+    #[config]
+    config: ProjectsAgentToolsConfig,
     projects: Port<projects::ProjectsClient>,
     collaboration: Port<collaboration::ProjectsCollaborationClient>,
 }
 
-#[lenso::provides(tool_contract::ToolProvider)]
+#[lenso::provides(tool_contract::ToolProvider, prompts::PromptProvider)]
 impl ProjectsAgentToolsPlugin {
+    async fn contribute(
+        &self,
+        _context: Ctx,
+        _request: prompts::ContributeRequest,
+    ) -> PluginResult<prompts::ContributeResponse, prompts::ContributeError> {
+        Ok(projects_prompt())
+    }
     fn catalog(
         &self,
         _context: Ctx,
@@ -65,6 +180,16 @@ impl ProjectsAgentToolsPlugin {
         }
 
         match request.name.as_str() {
+            ASSIGN_SELF_TOOL => {
+                let arguments = self_assignment(&self.config, &context, &request)?;
+                invoke!(
+                    self.collaboration
+                        .set_issue_assignee_with_context(context, arguments),
+                    ASSIGN_SELF_TOOL,
+                    collaboration::ProjectsCollaborationSetIssueAssigneeInvocationError::Domain,
+                    collaboration::ProjectsCollaborationSetIssueAssigneeInvocationError::Runtime
+                )
+            }
             LIST_PROJECTS_TOOL => {
                 let arguments = decode::<ListProjectsRequest>(&request)?;
                 invoke!(
@@ -186,6 +311,12 @@ impl ProjectsAgentToolsPlugin {
 fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         tool(
+            ASSIGN_SELF_TOOL,
+            "Assign this Issue to the authenticated user of this Projects App. Use this for 'assign to me'; never guess a subject ID. Supply the latest Issue revision and a stable idempotency key. Other Issue fields remain unchanged.",
+            r#"{"type":"object","additionalProperties":false,"required":["organization_id","issue_id","expected_revision","idempotency_key"],"properties":{"organization_id":{"type":"string"},"issue_id":{"type":"string"},"expected_revision":{"type":"string"},"idempotency_key":{"type":"string"}}}"#,
+            ToolExecutionClass::Exclusive,
+        ),
+        tool(
             "projects_get_issue_assignee",
             "Read the assignee of a visible Issue. Assignment requires an active organization member who can access the Issue; use the current revision and a stable idempotency key for writes.",
             include_str!(
@@ -274,6 +405,17 @@ fn tool_definitions() -> Vec<ToolDefinition> {
             ToolExecutionClass::Exclusive,
         ),
     ]
+}
+
+fn projects_prompt() -> prompts::ContributeResponse {
+    prompts::ContributeResponse {
+        contributions: vec![prompts::ContributeResponseContributionsItem {
+            id: "projects-business-workflow".into(),
+            kind: prompts::ContributeResponseContributionsItemKind::Instruction,
+            version: "1".into(),
+            content: "For Projects business tasks, use the supplied Projects tools, not browser guesses. Resolve 'assign to me' with projects_assign_issue_to_me; never infer the connected user's identity. After completing an Issue task, include a Markdown link to that Issue. Copy the exact current-page URL supplied by the user, or an exact _links URL returned by Projects tools. Never invent a hostname, workspace slug, or Issue URL. If a link is requested and no verified URL is available, read the Issue again. Preserve unrelated fields and handle revision conflicts explicitly.".into(),
+        }],
+    }
 }
 
 fn tool(
@@ -417,6 +559,9 @@ impl_collaboration_domain_error!(
     collaboration::ListCommentsError,
 );
 
+/// Retains this linked Plugin in native Host assemblies.
+pub fn link() {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,8 +578,17 @@ mod tests {
         let descriptor: serde_json::Value = serde_json::from_str(PLUGIN_DESCRIPTOR_JSON).unwrap();
         assert_eq!(descriptor["plugin_id"], "lenso.projects.agent-tools");
         let provided = descriptor["provided_capabilities"].as_array().unwrap();
-        assert_eq!(provided.len(), 1);
-        assert_eq!(provided[0]["capability_id"], "lenso.agent.tool-provider@2");
+        assert_eq!(provided.len(), 2);
+        assert_eq!(
+            provided
+                .iter()
+                .map(|entry| entry["capability_id"].as_str().unwrap())
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from([
+                "lenso.agent.prompt-provider@1",
+                "lenso.agent.tool-provider@2"
+            ]),
+        );
         let required = descriptor["required_capabilities"].as_array().unwrap();
         let capabilities = required
             .iter()
@@ -450,9 +604,9 @@ mod tests {
     }
 
     #[test]
-    fn catalog_has_seven_parallel_reads_and_five_exclusive_mutations() {
+    fn catalog_has_seven_parallel_reads_and_six_exclusive_mutations() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 12);
+        assert_eq!(tools.len(), 13);
         assert_eq!(
             tools
                 .iter()
@@ -465,7 +619,7 @@ mod tests {
                 .iter()
                 .filter(|tool| tool.execution == ToolExecutionClass::Exclusive)
                 .count(),
-            5
+            6
         );
         assert!(tools.iter().all(|tool| {
             let schema: serde_json::Value =
@@ -506,5 +660,154 @@ mod tests {
         assert_eq!(payload.reason_code, "revision_conflict");
         assert!(payload.message.contains("Read it again"));
         assert!(payload.message.contains("Do not overwrite"));
+    }
+
+    #[test]
+    fn self_assignment_requires_configured_signed_user_and_both_audiences() {
+        use lenso_auth_sdk::{ActorAssertionIssuer, Validity, audience};
+        use lenso_kernel::{CancellationToken, InvocationContext};
+        use std::collections::BTreeMap;
+        use time::Duration;
+        let issuer = ActorAssertionIssuer::new("auth", b"trusted-test-key");
+        let config = ProjectsAgentToolsConfig {
+            auth_issuer: Some("auth".into()),
+            auth_assertion_public_key: Some(issuer.public_key_base64()),
+        };
+        let request = request(
+            ASSIGN_SELF_TOOL,
+            r#"{"organization_id":"org","issue_id":"issue","expected_revision":"3","idempotency_key":"intent"}"#,
+        );
+        let blank = || InvocationContext::new(73, None, CancellationToken::new());
+        let now = OffsetDateTime::now_utc();
+        for subject in ["account-a", "account-b"] {
+            let assertion = issuer.issue(
+                subject,
+                "user",
+                "session",
+                [
+                    audience(
+                        tool_contract::CAPABILITY_ID,
+                        tool_contract::EXECUTE_OPERATION,
+                    ),
+                    audience(
+                        collaboration::CAPABILITY_ID,
+                        collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+                    ),
+                ],
+                Validity::new(now - Duration::minutes(1), now + Duration::minutes(1)).unwrap(),
+                BTreeMap::new(),
+            );
+            let context = assertion.attach(blank()).unwrap();
+            let assignment = self_assignment(&config, &context, &request).unwrap();
+            assert_eq!(assignment.assignee_subject.as_deref(), Some(subject));
+            assert_eq!(assignment.expected_revision, "3");
+            assert_eq!(assignment.idempotency_key, "intent");
+            assert_eq!(context.request_id(), 73);
+        }
+        assert!(self_assignment(&config, &blank(), &request).is_err());
+        assert!(self_assignment(&ProjectsAgentToolsConfig::default(), &blank(), &request).is_err());
+        for (signer, kind, expiry, audiences) in [
+            (
+                issuer.clone(),
+                "service",
+                now + Duration::minutes(1),
+                vec![
+                    audience(
+                        tool_contract::CAPABILITY_ID,
+                        tool_contract::EXECUTE_OPERATION,
+                    ),
+                    audience(
+                        collaboration::CAPABILITY_ID,
+                        collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+                    ),
+                ],
+            ),
+            (
+                issuer.clone(),
+                "user",
+                now - Duration::seconds(1),
+                vec![
+                    audience(
+                        tool_contract::CAPABILITY_ID,
+                        tool_contract::EXECUTE_OPERATION,
+                    ),
+                    audience(
+                        collaboration::CAPABILITY_ID,
+                        collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+                    ),
+                ],
+            ),
+            (
+                issuer.clone(),
+                "user",
+                now + Duration::minutes(1),
+                vec![audience(
+                    tool_contract::CAPABILITY_ID,
+                    tool_contract::EXECUTE_OPERATION,
+                )],
+            ),
+            (
+                ActorAssertionIssuer::new("auth", b"other-key"),
+                "user",
+                now + Duration::minutes(1),
+                vec![
+                    audience(
+                        tool_contract::CAPABILITY_ID,
+                        tool_contract::EXECUTE_OPERATION,
+                    ),
+                    audience(
+                        collaboration::CAPABILITY_ID,
+                        collaboration::SET_ISSUE_ASSIGNEE_OPERATION,
+                    ),
+                ],
+            ),
+        ] {
+            let assertion = signer.issue(
+                "admin",
+                kind,
+                "session",
+                audiences,
+                Validity::new(now - Duration::minutes(2), expiry).unwrap(),
+                BTreeMap::new(),
+            );
+            assert!(
+                self_assignment(&config, &assertion.attach(blank()).unwrap(), &request).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn self_assignment_rejects_model_identity_fields_and_partial_configuration() {
+        assert!(
+            validate_config(&ProjectsAgentToolsConfig {
+                auth_issuer: Some("auth".into()),
+                auth_assertion_public_key: None
+            })
+            .is_err()
+        );
+        for field in [
+            "subject",
+            "actor",
+            "assignee_subject",
+            "credential",
+            "context",
+        ] {
+            let mut arguments = serde_json::json!({"organization_id":"org","issue_id":"issue","expected_revision":"3","idempotency_key":"intent"});
+            arguments[field] = "other-account".into();
+            assert!(
+                decode::<AssignSelfRequest>(&request(ASSIGN_SELF_TOOL, &arguments.to_string()))
+                    .is_err()
+            );
+        }
+        let tool = tool_definitions()
+            .into_iter()
+            .find(|tool| tool.name == ASSIGN_SELF_TOOL)
+            .unwrap();
+        assert_eq!(tool.execution, ToolExecutionClass::Exclusive);
+        assert!(
+            projects_prompt().contributions[0]
+                .content
+                .contains(ASSIGN_SELF_TOOL)
+        );
     }
 }

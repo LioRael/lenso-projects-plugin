@@ -13,8 +13,11 @@ root-slot = "tool-providers"
 
 [dependencies]
 futures.workspace = true
+lenso-auth-sdk.workspace = true
+time.workspace = true
 lenso.workspace = true
 lenso-capability-agent-tool-provider.workspace = true
+lenso-capability-agent-prompt-provider.workspace = true
 lenso-capability-projects = { path = "../lenso-capability-projects", version = "0.2.0" }
 lenso-capability-projects-collaboration = { path = "../lenso-capability-projects-collaboration", version = "0.3.0" }
 lenso-kernel.workspace = true
@@ -23,3 +26,9 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+lenso-app-plan = "0.4.1"
+lenso-native-adapter = "0.3.13"
+lenso-runner = "0.2.13"
+tokio.workspace = true
