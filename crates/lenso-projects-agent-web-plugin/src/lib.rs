@@ -236,12 +236,12 @@ fn project_issue_links(origin: &str, tool_name: &str, result: &mut tools::Execut
     } else {
         link(&body).into_iter().collect()
     };
-    if !links.is_empty() {
-        if let Some(object) = body.as_object_mut() {
-            object.insert("_links".into(), serde_json::Value::Array(links));
-            if let Ok(content) = serde_json::to_string_pretty(&body) {
-                result.content = content;
-            }
+    if !links.is_empty()
+        && let Some(object) = body.as_object_mut()
+    {
+        object.insert("_links".into(), serde_json::Value::Array(links));
+        if let Ok(content) = serde_json::to_string_pretty(&body) {
+            result.content = content;
         }
     }
 }
