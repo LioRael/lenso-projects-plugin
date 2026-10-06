@@ -663,6 +663,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one security regression keeps signed identity and both audience checks together"
+    )]
     fn self_assignment_requires_configured_signed_user_and_both_audiences() {
         use lenso_auth_sdk::{ActorAssertionIssuer, Validity, audience};
         use lenso_kernel::{CancellationToken, InvocationContext};
