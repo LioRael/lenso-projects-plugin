@@ -246,6 +246,10 @@ fn context(
         .unwrap()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one native regression tracks signed account identity and owner denial boundaries"
+)]
 #[tokio::test(flavor = "current_thread")]
 async fn assignment_forwards_exact_actor_operation_identity_and_owner_denials() {
     tokio::task::LocalSet::new()
